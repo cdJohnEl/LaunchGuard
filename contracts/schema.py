@@ -13,8 +13,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, TypedDict
+import unicodedata
 
 GROUP_COLLECTION = "groups"
+
+# Cyrillic/Greek lookalike folding used by every matcher ("wаllet" with a
+# Cyrillic а must not evade literal detection). NFKC handles fullwidth forms.
+_CONFUSABLES = str.maketrans(
+    {
+        "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y",
+        "к": "k", "м": "m", "н": "h", "т": "t", "в": "b", "і": "i", "ѕ": "s",
+        "ј": "j", "һ": "h", "ԁ": "d", "ɡ": "g", "ο": "o", "α": "a", "ε": "e",
+        "ρ": "p", "ν": "v", "κ": "k", "τ": "t", "ι": "i", "ς": "s", "υ": "u",
+    }
+)
+
+
+def normalize_text(text: str) -> str:
+    # lower() after NFKC and before the table: uppercase Cyrillic/Greek
+    # homoglyphs (Рrofit, MОNEY) lowercase into the entries below. All
+    # consumers match case-insensitively, so folding case is safe.
+    return unicodedata.normalize("NFKC", text).lower().translate(_CONFUSABLES)
 
 DEFAULT_SUBSCRIPTION_STATUS = "trial"
 

@@ -1,3 +1,89 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-paper font-sans text-ink;
+  }
+
+  ::selection {
+    @apply bg-signal-tint text-ink;
+  }
+
+  :focus-visible {
+    outline: 2px solid #b42318;
+    outline-offset: 2px;
+  }
+
+  /* Underline-style inputs: the inked bottom border is the focus indicator. */
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  .kicker {
+    @apply font-sans text-[11px] font-medium uppercase tracking-[0.16em] text-ink-soft;
+  }
+
+  .input-line {
+    @apply block w-full border-b border-rule-strong bg-transparent px-0 py-2 text-[15px] text-ink placeholder:text-ink-soft transition-[border-color,box-shadow] duration-200 ease-out focus:border-ink focus:shadow-[0_1px_0_0_#1C1917] aria-[invalid=true]:border-signal;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-[2px] bg-ink px-4 py-2 text-sm font-medium text-paper transition-[background-color,transform] duration-200 ease-out hover:bg-ink-hover active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-quiet {
+    @apply inline-flex items-center rounded-[2px] border border-rule-strong bg-transparent px-4 py-1.5 text-sm font-medium text-ink transition-[border-color,transform] duration-200 ease-out hover:border-ink active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-text-danger {
+    @apply font-sans text-[13px] font-medium text-signal underline decoration-rule-strong underline-offset-4 transition-[text-decoration-color,transform] duration-200 ease-out hover:decoration-signal active:scale-[0.97] disabled:cursor-not-allowed disabled:text-ink-faint disabled:no-underline;
+  }
+
+  .err {
+    @apply mt-1.5 text-[13px] leading-snug text-signal;
+  }
+
+  .leader {
+    @apply min-w-6 flex-1 -translate-y-1 border-b border-dotted border-rule-strong;
+  }
+
+  .stat-numeral {
+    @apply font-display text-[clamp(4.5rem,13vw,8.25rem)] font-medium leading-[0.95] tracking-[-0.03em];
+  }
+
+  .stat-rise {
+    animation: stat-rise 220ms ease-out both;
+  }
+}
+
+@keyframes stat-rise {
+  from {
+    opacity: 0.2;
+    transform: translateY(0.14em);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

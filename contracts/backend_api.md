@@ -44,8 +44,9 @@ def tier_one_match(text: str, patterns: list[str] | None = None) -> Decision
     # (patterns come from Firestore, cannot be trusted). Return Decision
     # (delete=True, tier=1) on first match.
 def is_tier_two_trigger(text: str) -> bool
-    # True if text contains a URL (http(s)://, www., t.me/) or the word
-    # "wallet"/"wallets" (word boundary; must NOT match "walletconnect").
+    # True if text contains a URL (http(s)://, www., t.me/), the word
+    # "wallet"/"wallets" (word boundary; must NOT match "walletconnect"), or a
+    # wallet address (0x + 40 hex, or 33-44 char base58) per the PRD.
 async def evaluate(text: str, patterns: list[str] | None = None) -> Decision
     # Tier 1 first; if clean and tier-2 trigger -> llm_service.check_intent;
     # LLM error/timeout -> Decision(delete=False) (fail-open), never raise.
