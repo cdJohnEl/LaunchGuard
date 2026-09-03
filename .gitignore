@@ -1,0 +1,28 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# env and secrets
+.env
+.env.local
+.env*.local
+*.service-account.json
+serviceAccountKey*.json
+google-credentials*.json
+firebase-adminsdk*.json
+
+# misc
+.DS_Store
+*.log
+.vercel
+.variants/
