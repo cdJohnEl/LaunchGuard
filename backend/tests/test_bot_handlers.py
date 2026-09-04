@@ -310,7 +310,7 @@ async def test_my_chat_member_joined_registers_and_welcomes(monkeypatch):
     assert firebase.ensure_chat_calls == [(-100123, "Founders", "supergroup")]
     assert firebase.active_calls == [(-100123, True)]
     assert len(fake_bot.sent) == 1
-    assert fake_bot.sent[0]["text"] == bot.WELCOME_TEXT
+    assert fake_bot.sent[0]["text"] == bot.welcome_text(-100123)
 
 
 async def test_my_chat_member_kicked_marks_inactive(monkeypatch):
@@ -644,3 +644,11 @@ async def test_edited_start_update_is_ignored(monkeypatch):
 
     assert fake_bot.sent == []
     assert engine.calls == []
+
+
+def test_welcome_message_contains_the_chat_id():
+    # The founder needs this id to connect the dashboard; it is the one fact
+    # the bot uniquely knows at add-time.
+    text = bot.welcome_text(-5251747453)
+    assert "-5251747453" in text
+    assert "Delete messages" in text

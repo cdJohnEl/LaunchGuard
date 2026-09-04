@@ -64,11 +64,18 @@ GROUP_START_TEXT = (
     "Founder: promote me to admin with the 'Delete messages' permission, "
     "then set your scam keywords and FAQ answers in the LaunchGuard dashboard."
 )
-WELCOME_TEXT = (
-    "Thanks for adding LaunchGuard! Promote me to admin with the "
-    "'Delete messages' permission so I can remove scams, then configure "
-    "keywords and FAQ answers in the LaunchGuard dashboard."
-)
+
+
+def welcome_text(chat_id: int) -> str:
+    # The chat id is the one thing onboarding needs and the hardest to find:
+    # post it in the welcome message so step 3 is a copy-paste.
+    return (
+        "Thanks for adding LaunchGuard! Promote me to admin with the "
+        "'Delete messages' permission so I can remove scams.\n\n"
+        f"This group's chat id: {chat_id}\n"
+        "Paste it into the Launch Guard dashboard to connect the group and "
+        "configure FAQ answers."
+    )
 
 _admin_cache: dict[int, tuple[float, set[int]]] = {}
 
@@ -186,7 +193,7 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             except Exception:
                 logger.exception("failed to register chat %s in Firestore", chat.id)
             try:
-                await context.bot.send_message(chat_id=chat.id, text=WELCOME_TEXT)
+                await context.bot.send_message(chat_id=chat.id, text=welcome_text(chat.id))
             except TelegramError:
                 logger.warning("welcome message failed in chat %s", chat.id)
         elif status in _LEFT_STATUSES:

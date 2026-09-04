@@ -87,3 +87,24 @@
     transform: translateY(0);
   }
 }
+
+/* ------------------------------------------------------------------
+   Landing layer — added for / and /connect.
+   Everything above this line is the shared dashboard layer:
+   byte-identical, do not edit.
+   ------------------------------------------------------------------ */
+
+@layer components {
+  /* Quiet text link used across the landing pages: the underline inks on
+     hover. Transitions only the decoration color, 200ms ease-out. */
+  .landing-link {
+    @apply font-medium text-ink underline decoration-rule-strong underline-offset-4 transition-[text-decoration-color] duration-200 ease-out hover:decoration-ink;
+  }
+
+  /* Signature element, spent once: the oversized italic station numerals
+     of the setup spine. Sits centered on the rule line with a paper patch
+     so the line breaks behind the numeral, like a printed index. */
+  .station-numeral {
+    @apply absolute left-0 top-0 -translate-x-1/2 bg-paper px-2 font-display text-[40px] font-light italic leading-none tracking-[-0.02em] text-ink md:text-[44px];
+  }
+}
