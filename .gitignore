@@ -20,6 +20,8 @@ next-env.d.ts
 serviceAccountKey*.json
 google-credentials*.json
 firebase-adminsdk*.json
+*-firebase-adminsdk*.json
+*:Zone.Identifier
 
 # misc
 .DS_Store

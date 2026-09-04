@@ -56,11 +56,10 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
 
 
 def load_config() -> Config:
-    missing = [
-        name
-        for name in ("TELEGRAM_BOT_TOKEN", "WEBHOOK_URL", "TELEGRAM_WEBHOOK_SECRET")
-        if not _env(name)
-    ]
+    # Only the token is hard-required: webhook_url selects webhook vs polling
+    # mode and webhook_secret is strongly recommended (main.py 403s without it),
+    # but local polling runs fine without either.
+    missing = [name for name in ("TELEGRAM_BOT_TOKEN",) if not _env(name)]
     if missing:
         raise ConfigError(
             f"Missing required environment variable(s): {', '.join(missing)}. "

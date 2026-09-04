@@ -8,6 +8,7 @@ from google.api_core.exceptions import AlreadyExists
 from google.cloud.firestore import DELETE_FIELD, Increment
 from google.cloud.firestore_v1.field_path import FieldPath
 
+import config
 import firebase_client
 from firebase_client import FirebaseConfigError
 from google.cloud.exceptions import NotFound
@@ -133,7 +134,10 @@ class FakeFirestore:
 
 
 @pytest.fixture(autouse=True)
-def _firebase_state():
+def _firebase_state(monkeypatch):
+    # Freeze the dotenv loader: a developer's real backend/.env must never
+    # leak into tests that assert credential-missing behavior.
+    monkeypatch.setattr(config, "_dotenv_loaded", True)
     saved = (firebase_client._db, firebase_client._app)
     firebase_client._config_cache.clear()
     firebase_client._inflight_configs.clear()
