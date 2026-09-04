@@ -10,6 +10,7 @@ from telegram.ext import ApplicationBuilder
 
 import bot
 import config
+import firebase_client
 
 
 def main() -> None:
@@ -23,6 +24,10 @@ def main() -> None:
         raise SystemExit(f"poll: {exc}") from exc
     if not settings.telegram_bot_token:
         raise SystemExit("poll: TELEGRAM_BOT_TOKEN is not set")
+    try:
+        firebase_client.init_firebase()
+    except firebase_client.FirebaseConfigError as exc:
+        raise SystemExit(f"poll: {exc}")
     application = (
         ApplicationBuilder().token(settings.telegram_bot_token).concurrent_updates(True).build()
     )
