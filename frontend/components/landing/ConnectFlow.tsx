@@ -194,7 +194,7 @@ export function ConnectFlow() {
             <PendingClaim
               group={state.group}
               userUid={user.uid}
-              onClaimed={(ownerUid) =>
+              onResolved={(ownerUid) =>
                 setState({
                   s: "found",
                   group: { ...state.group, ownerUid },
@@ -333,12 +333,12 @@ function FoundPanel({
 function PendingClaim({
   group,
   userUid,
-  onClaimed,
+  onResolved,
   onCancel,
 }: {
   group: FoundGroup;
   userUid: string;
-  onClaimed: (ownerUid: string) => void;
+  onResolved: (ownerUid: string) => void;
   onCancel: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -352,8 +352,9 @@ function PendingClaim({
           return;
         }
         const owner = snapshot.data().owner_uid;
-        if (typeof owner === "string" && owner === userUid) {
-          onClaimed(owner);
+        if (typeof owner === "string" && owner !== "") {
+          // Resolves to either your dashboard ("mine") or the taken state.
+          onResolved(owner);
         }
       },
       (error) => console.error(error),
@@ -399,7 +400,8 @@ function PendingClaim({
             className="inline-block h-2 w-2 animate-pulse rounded-full bg-signal"
             aria-hidden="true"
           />
-          Waiting for the command in {group.name ?? "your group"}…
+          Waiting for the command in {group.name ?? "your group"}… If someone
+          claims it first, this page tells you instead of waiting.
         </p>
         <button type="button" className="btn-quiet" onClick={onCancel}>
           Cancel

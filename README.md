@@ -164,7 +164,8 @@ every provider, and any provider error or timeout fails open (no delete).
   everyone but their owner. Unowned docs are therefore readable signed-in
   until claimed — claim early.
 - A group co-admin can run `/claim` and bind the group to their own founder
-  account: Telegram admin rights are the trust boundary, by design.
+  account: Telegram admin rights are the trust boundary, by design. Admins
+  can `/unclaim` to release a group (typo recovery).
 - Edited messages are ignored entirely (they are a spam vector, not scanned).
 - FAQ matching is literal keyword-in-message (word boundary, case-insensitive);
   no fuzzy or embedding matching yet.

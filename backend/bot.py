@@ -91,6 +91,7 @@ CLAIM_NOT_ADMIN_TEXT = "Only group admins can claim this group for a founder acc
 def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("claim", cmd_claim))
+    application.add_handler(CommandHandler("unclaim", cmd_unclaim))
     application.add_handler(ChatMemberHandler(on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     # No ~filters.COMMAND here: registered commands are consumed by the
     # CommandHandler above, but a scam message starting with an unregistered
@@ -216,6 +217,28 @@ async def cmd_claim(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(chat_id=chat.id, text=reply)
     except Exception:
         logger.exception("cmd_claim failed for update %s", getattr(update, "update_id", None))
+
+
+async def cmd_unclaim(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        chat = update.effective_chat
+        message = update.message
+        if chat is None or message is None or chat.type not in _GROUP_TYPES:
+            return
+        sender = message.from_user
+        if sender is None or sender.is_bot:
+            return
+        if not is_admin(sender.id, await get_admin_ids(context.bot, chat.id)):
+            await context.bot.send_message(chat_id=chat.id, text=CLAIM_NOT_ADMIN_TEXT)
+            return
+        result = await firebase_client.unclaim_group(chat.id)
+        if result == "cleared":
+            reply = "Ownership released. Any admin can now /claim the group again."
+        else:
+            reply = "This group isn't registered — nothing to release."
+        await context.bot.send_message(chat_id=chat.id, text=reply)
+    except Exception:
+        logger.exception("cmd_unclaim failed for update %s", getattr(update, "update_id", None))
 
 
 async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

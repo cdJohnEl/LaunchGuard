@@ -679,3 +679,15 @@ async def test_claim_group_invalidates_config_cache():
     await firebase_client.get_chat_config(-100123)
     await firebase_client.claim_group(-100123, "uid-abc")
     assert "-100123" not in firebase_client._config_cache
+
+
+async def test_unclaim_group_releases_ownership():
+    fs = use_fake(FakeFirestore())
+    seed_doc(fs, -100123, {"chat_id": -100123, "owner_uid": "founder-1"})
+    assert await firebase_client.unclaim_group(-100123) == "cleared"
+    assert fs.doc_ref(-100123).get().to_dict()["owner_uid"] is None
+
+
+async def test_unclaim_group_missing_doc():
+    use_fake(FakeFirestore())
+    assert await firebase_client.unclaim_group(-100999) == "not_found"

@@ -213,6 +213,31 @@ async def claim_group(chat_id: int, owner_uid: str) -> str:
     return result
 
 
+async def unclaim_group(chat_id: int) -> str:
+    """Admin-SDK recovery: release a group's ownership (owner_uid -> null).
+    Reached only through the bot's admin-gated /unclaim command. Returns
+    "cleared" or "not_found"."""
+    db = _require_db()
+    transactional = _transactional(db)
+
+    def _unclaim() -> str:
+        ref = db.collection(GROUP_COLLECTION).document(doc_id(chat_id))
+
+        @transactional
+        def _tx(transaction) -> str:
+            snap = ref.get(transaction=transaction)
+            if not snap.exists:
+                return "not_found"
+            transaction.update(ref, {"owner_uid": None, "updated_at": now_iso()})
+            return "cleared"
+
+        return _tx(db.transaction())
+
+    result = await asyncio.to_thread(_unclaim)
+    _config_cache.pop(doc_id(chat_id), None)
+    return result
+
+
 async def set_chat_active(chat_id: int, active: bool) -> None:
     db = _require_db()
     ref = db.collection(GROUP_COLLECTION).document(doc_id(chat_id))

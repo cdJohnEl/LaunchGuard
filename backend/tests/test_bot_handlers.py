@@ -54,6 +54,10 @@ class StubFirebase:
         self.claim_calls.append((chat_id, owner_uid))
         return self.claim_result
 
+    async def unclaim_group(self, chat_id: int) -> str:
+        self.unclaim_calls: list[int] = getattr(self, "unclaim_calls", []) + [chat_id]
+        return self.claim_result
+
 
 class BrokenFirebase(StubFirebase):
     async def get_chat_config(self, chat_id: int) -> dict:
@@ -446,6 +450,7 @@ def test_build_application_registers_handlers_in_order_and_has_no_updater():
     assert [type(handler) for handler in handlers] == [
         CommandHandler,
         CommandHandler,
+        CommandHandler,
         ChatMemberHandler,
         MessageHandler,
     ]
@@ -742,3 +747,32 @@ async def test_claim_in_private_chat_is_ignored(monkeypatch):
 
     assert firebase.claim_calls == []
     assert fake_bot.sent == []
+
+
+async def test_unclaim_by_group_admin_releases_ownership(monkeypatch):
+    firebase = StubFirebase()
+    firebase.claim_result = "cleared"
+    fake_bot, ctx = wire(monkeypatch, firebase, StubScamEngine())
+    fake_bot.admin_ids = {42}
+    update = Update(
+        update_id=15,
+        message=make_command_message("/unclaim", 8),
+    )
+
+    await bot.cmd_unclaim(update, ctx)
+
+    assert firebase.claim_calls == []
+    assert "released" in fake_bot.sent[0]["text"].lower()
+
+
+async def test_unclaim_by_non_admin_is_refused(monkeypatch):
+    firebase = StubFirebase()
+    fake_bot, ctx = wire(monkeypatch, firebase, StubScamEngine())
+    update = Update(
+        update_id=16,
+        message=make_command_message("/unclaim", 8),
+    )
+
+    await bot.cmd_unclaim(update, ctx)
+
+    assert "admins" in fake_bot.sent[0]["text"]
