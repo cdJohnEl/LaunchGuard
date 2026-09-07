@@ -50,7 +50,7 @@ Environment variables (see `backend/.env.example`):
 | `LAUNCHGUARD_LLM_PROVIDER` | no (default `mock`) | `mock`, `groq`, or `claude_cli` |
 | `LLM_TIMEOUT_SECONDS` | no (default 10) | tier-2 call timeout; on timeout the bot fails open (no delete) |
 | `GROQ_API_KEY` | when provider is `groq` | from console.groq.com -> API keys |
-| `GROQ_MODEL` | no (default `llama-3.1-8b-instant`) | any Groq-hosted model id |
+| `GROQ_MODEL` | no (default `openai/gpt-oss-20b`) | any Groq-hosted model id |
 
 ### Running
 
@@ -127,7 +127,7 @@ Tier 2 ships with a deterministic mock provider. Your options:
 
 1. `LAUNCHGUARD_LLM_PROVIDER=groq` — hosted Groq (OpenAI-compatible, JSON mode).
    Set `GROQ_API_KEY` (console.groq.com -> API keys) and optionally `GROQ_MODEL`
-   (default `llama-3.1-8b-instant`, the low-latency pick; `llama-3.3-70b-versatile`
+   (default `openai/gpt-oss-20b`, the low-latency pick; `openai/gpt-oss-120b`
    is the stronger classifier).
 2. `LAUNCHGUARD_LLM_PROVIDER=claude_cli` — routes through the local Claude Code
    CLI (`claude -p`), no API key or hosted API involved.

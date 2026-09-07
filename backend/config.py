@@ -99,7 +99,7 @@ def groq_api_key() -> Optional[str]:
 
 
 def groq_model() -> str:
-    return _env("GROQ_MODEL", "llama-3.1-8b-instant") or "llama-3.1-8b-instant"
+    return _env("GROQ_MODEL", "openai/gpt-oss-20b") or "openai/gpt-oss-20b"
 
 
 def llm_provider() -> str:
