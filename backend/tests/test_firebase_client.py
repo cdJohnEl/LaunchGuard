@@ -48,7 +48,7 @@ class FakeDocRef:
         self._fs = fs
         self.key = key
 
-    def get(self) -> FakeSnapshot:
+    def get(self, transaction=None) -> FakeSnapshot:
         return FakeSnapshot(copy.deepcopy(self._fs.store.get(self.key)))
 
     def create(self, data: dict) -> None:
@@ -119,12 +119,48 @@ def _leaf_walk(data: dict, prefix: list) -> list:
     return segments_pairs
 
 
+class FakeTransaction:
+    def get(self, ref: "FakeDocRef") -> FakeSnapshot:
+        return ref.get()
+
+    def update(self, ref: "FakeDocRef", data: dict) -> None:
+        ref.update(data)
+
+    def get(self, ref: "FakeDocRef") -> FakeSnapshot:
+        return ref.get()
+
+    def update(self, ref: "FakeDocRef", data: dict) -> None:
+        ref.update(data)
+
+
+class FakeBatch:
+    def __init__(self, fs: "FakeFirestore"):
+        self._fs = fs
+        self._ops: list = []
+
+    def set(self, ref: "FakeDocRef", data: dict, merge: bool = False) -> None:
+        self._ops.append((ref, data, merge))
+
+    def commit(self) -> None:
+        for ref, data, merge in self._ops:
+            ref.set(data, merge=merge)
+
+
 class FakeFirestore:
     def __init__(self):
         self.store: dict = {}
         self.sets: dict = {}
         self.creates: dict = {}
         self.updates: dict = {}
+        self.batches: list = []
+
+    def batch(self) -> FakeBatch:
+        batch = FakeBatch(self)
+        self.batches.append(batch)
+        return batch
+
+    def transaction(self) -> FakeTransaction:
+        return FakeTransaction()
 
     def collection(self, name: str) -> FakeCollection:
         return FakeCollection(self, name)
@@ -138,6 +174,8 @@ def _firebase_state(monkeypatch):
     # Freeze the dotenv loader: a developer's real backend/.env must never
     # leak into tests that assert credential-missing behavior.
     monkeypatch.setattr(config, "_dotenv_loaded", True)
+    monkeypatch.setattr(firebase_client, "_transactional", lambda db: (lambda fn: fn))
+    monkeypatch.setattr(firebase_client, "_count_active_docs", lambda db: 0)
     saved = (firebase_client._db, firebase_client._app)
     firebase_client._config_cache.clear()
     firebase_client._inflight_configs.clear()
@@ -565,3 +603,79 @@ async def test_set_faq_pair_rejects_whitespace_only_keyword():
     await firebase_client.set_faq_pair(-100123, "   ", "ignored")
     doc = fs.doc_ref(-100123).get().to_dict()
     assert doc.get("faq_pairs", {}) == {}
+
+
+# --- lockdown: public stats + batch writes ---
+
+
+async def test_increment_writes_group_and_public_stats_in_one_batch():
+    fs = use_fake(FakeFirestore())
+    seed_doc(fs, -100123, dict(FULL_DOC))
+    await firebase_client.increment_scams_blocked(-100123, amount=2)
+    doc = fs.doc_ref(-100123).get().to_dict()
+    assert doc["scams_blocked"] == 9
+    stats = fs.store.get(("public", "stats"))
+    assert stats["total_blocked"] == 2
+    assert len(fs.batches) == 1 and len(fs.batches[0]._ops) == 2
+
+
+async def test_refresh_active_groups_count_writes_public_doc(monkeypatch):
+    fs = use_fake(FakeFirestore())
+    monkeypatch.setattr(firebase_client, "_count_active_docs", lambda db: 7)
+    await firebase_client.refresh_active_groups_count()
+    stats = fs.store.get(("public", "stats"))
+    assert stats["active_groups"] == 7
+
+
+async def test_set_chat_active_refreshes_public_count(monkeypatch):
+    fs = use_fake(FakeFirestore())
+    seed_doc(fs, -100123, FULL_DOC)
+    calls = []
+    monkeypatch.setattr(
+        firebase_client, "_count_active_docs", lambda db: calls.append(1) or 3
+    )
+    await firebase_client.set_chat_active(-100123, True)
+    assert fs.doc_ref(-100123).get().to_dict()["active"] is True
+    assert fs.store.get(("public", "stats"))["active_groups"] == 3
+    assert len(calls) == 1
+
+
+# --- proof-of-control claims ---
+
+
+async def test_claim_group_binds_unowned_doc():
+    fs = use_fake(FakeFirestore())
+    seed_doc(fs, -100123, {"chat_id": -100123, "owner_uid": None})
+    result = await firebase_client.claim_group(-100123, "uid-abc")
+    assert result == "claimed"
+    doc = fs.doc_ref(-100123).get().to_dict()
+    assert doc["owner_uid"] == "uid-abc"
+
+
+async def test_claim_group_refuses_owned_doc():
+    fs = use_fake(FakeFirestore())
+    seed_doc(fs, -100123, {"chat_id": -100123, "owner_uid": "founder-1"})
+    result = await firebase_client.claim_group(-100123, "attacker-9")
+    assert result == "taken"
+    assert fs.doc_ref(-100123).get().to_dict()["owner_uid"] == "founder-1"
+
+
+async def test_claim_group_not_found():
+    use_fake(FakeFirestore())
+    assert await firebase_client.claim_group(-100999, "uid-abc") == "not_found"
+
+
+async def test_claim_group_reattach_by_same_owner_is_fine():
+    fs = use_fake(FakeFirestore())
+    seed_doc(fs, -100123, {"chat_id": -100123, "owner_uid": "uid-abc"})
+    result = await firebase_client.claim_group(-100123, "uid-abc")
+    assert result == "taken"
+    assert fs.doc_ref(-100123).get().to_dict()["owner_uid"] == "uid-abc"
+
+
+async def test_claim_group_invalidates_config_cache():
+    fs = use_fake(FakeFirestore())
+    seed_doc(fs, -100123, {"chat_id": -100123, "owner_uid": None, "faq_pairs": {}})
+    await firebase_client.get_chat_config(-100123)
+    await firebase_client.claim_group(-100123, "uid-abc")
+    assert "-100123" not in firebase_client._config_cache

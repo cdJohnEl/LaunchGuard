@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FirebaseError } from "firebase/app";
 import { onSnapshot, doc } from "firebase/firestore";
 import { db, firebaseConfigured } from "@/lib/firebase";
+import { signOutUser, useAuth } from "@/lib/auth";
 import { extractFaqPairs } from "@/lib/faq";
 import { BlockedCounter } from "@/components/BlockedCounter";
 import { ChatPicker } from "@/components/ChatPicker";
@@ -10,6 +12,7 @@ import { FaqForm } from "@/components/FaqForm";
 import { FaqList } from "@/components/FaqList";
 import { GroupLine } from "@/components/GroupLine";
 import { SetupNotice } from "@/components/SetupNotice";
+import { SignInPrompt } from "@/components/SignInPrompt";
 
 const STORAGE_KEY = "launchguard:chat";
 
@@ -26,6 +29,7 @@ type DocState =
   | { s: "loading" }
   | { s: "missing" }
   | { s: "error" }
+  | { s: "denied" }
   | { s: "ready"; group: GroupData };
 
 function persistChatId(chatId: string) {
@@ -47,6 +51,7 @@ function updateUrl(chatId: string) {
 }
 
 export default function DashboardPage() {
+  const { user, loading } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [chatId, setChatId] = useState<string | null>(null);
   const [docState, setDocState] = useState<DocState>({ s: "idle" });
@@ -80,7 +85,7 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (chatId === null || !firebaseConfigured) return;
+    if (chatId === null || !firebaseConfigured || user === null) return;
     setDocState({ s: "loading" });
     const unsubscribe = onSnapshot(
       doc(db, "groups", chatId),
@@ -106,11 +111,15 @@ export default function DashboardPage() {
       },
       (error) => {
         console.error(error);
-        setDocState({ s: "error" });
+        setDocState(
+          error instanceof FirebaseError && error.code === "permission-denied"
+            ? { s: "denied" }
+            : { s: "error" },
+        );
       },
     );
     return unsubscribe;
-  }, [chatId]);
+  }, [chatId, user]);
 
   function connect(id: string) {
     setChatId(id);
@@ -121,6 +130,62 @@ export default function DashboardPage() {
 
   const showDocState =
     docState.s !== "idle" ? docState : chatId !== null ? { s: "loading" as const } : null;
+
+  let content: React.ReactNode;
+  if (!firebaseConfigured) {
+    content = <SetupNotice />;
+  } else if (!mounted || loading) {
+    content = <HeroSkeleton />;
+  } else if (user === null) {
+    content = (
+      <SignInPrompt context="Sign in to see your group's dashboard." />
+    );
+  } else if (chatId === null) {
+    content = (
+      <div className="mt-12">
+        <ChatPicker idPrefix="panel" onConnect={connect} variant="panel" />
+        <p className="mt-4 max-w-md text-[15px] leading-relaxed text-ink-soft">
+          The dashboard follows one group at a time. Switch any time from the
+          masthead.
+        </p>
+      </div>
+    );
+  } else {
+    content = (
+      <>
+        {showDocState?.s === "loading" && <HeroSkeleton />}
+        {showDocState?.s === "missing" && <MissingNotice />}
+        {showDocState?.s === "error" && <ConnectionError />}
+        {showDocState?.s === "denied" && <DeniedNotice />}
+        {showDocState?.s === "ready" && (
+          <>
+            <section className="mt-10">
+              <BlockedCounter value={showDocState.group.scams} />
+              <GroupLine
+                name={showDocState.group.name}
+                active={showDocState.group.active}
+                subscription={showDocState.group.subscription}
+              />
+            </section>
+
+            <section className="mt-14 border-t border-rule pt-8">
+              <div className="grid gap-10 lg:grid-cols-12">
+                <div className="lg:col-span-5">
+                  <FaqForm
+                    chatId={chatId}
+                    docExists={showDocState.s === "ready"}
+                  />
+                </div>
+                <div className="lg:col-span-7 lg:border-l lg:border-rule lg:pl-10">
+                  <FaqList chatId={chatId} pairs={showDocState.group.pairs} />
+                </div>
+              </div>
+            </section>
+          </>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[880px] flex-col px-6 md:px-10">
@@ -138,60 +203,31 @@ export default function DashboardPage() {
           <p className="min-h-[1.5rem] font-display text-sm italic text-ink-soft">
             {dateline}
           </p>
-          {mounted && chatId !== null && (
+          {mounted && user !== null && chatId !== null && (
             <ChatPicker idPrefix="bar" onConnect={connect} variant="bar" />
           )}
         </div>
+        {mounted && user !== null && (
+          <div className="flex items-baseline justify-between gap-4 border-t border-rule py-2">
+            <span className="font-mono text-[12px] text-ink-soft">
+              {user.email ?? user.uid}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setDocState({ s: "idle" });
+                void signOutUser();
+              }}
+              className="btn-text-danger"
+            >
+              Sign out
+            </button>
+          </div>
+        )}
         <div className="border-t border-rule" />
       </header>
 
-      <main className="grow">
-        {!firebaseConfigured ? (
-          <SetupNotice />
-        ) : !mounted ? (
-          <HeroSkeleton />
-        ) : chatId === null ? (
-          <div className="mt-12">
-            <ChatPicker idPrefix="panel" onConnect={connect} variant="panel" />
-            <p className="mt-4 max-w-md text-[15px] leading-relaxed text-ink-soft">
-              The dashboard follows one group at a time. Switch any time from the
-              masthead.
-            </p>
-          </div>
-        ) : (
-          <>
-            {showDocState?.s === "loading" && <HeroSkeleton />}
-            {showDocState?.s === "missing" && <MissingNotice />}
-            {showDocState?.s === "error" && <ConnectionError />}
-            {showDocState?.s === "ready" && (
-              <>
-                <section className="mt-10">
-                  <BlockedCounter value={showDocState.group.scams} />
-                  <GroupLine
-                    name={showDocState.group.name}
-                    active={showDocState.group.active}
-                    subscription={showDocState.group.subscription}
-                  />
-                </section>
-
-                <section className="mt-14 border-t border-rule pt-8">
-                  <div className="grid gap-10 lg:grid-cols-12">
-                    <div className="lg:col-span-5">
-                      <FaqForm
-                        chatId={chatId}
-                        docExists={showDocState.s === "ready"}
-                      />
-                    </div>
-                    <div className="lg:col-span-7 lg:border-l lg:border-rule lg:pl-10">
-                      <FaqList chatId={chatId} pairs={showDocState.group.pairs} />
-                    </div>
-                  </div>
-                </section>
-              </>
-            )}
-          </>
-        )}
-      </main>
+      <main className="grow">{content}</main>
 
       <footer className="mt-16 flex flex-wrap items-baseline justify-between gap-2 border-t border-rule py-5">
         <p className="text-xs text-ink-soft">
@@ -221,7 +257,7 @@ function MissingNotice() {
     <section className="mt-12 border border-rule-strong px-8 py-10 md:px-10">
       <p className="kicker">Not connected</p>
       <h2 className="mt-2 max-w-lg font-display text-2xl tracking-tight md:text-[28px] md:leading-snug">
-        No group connected yet — add @LaunchGuardBot to your group
+        No group connected yet — add the bot to your group (see /connect)
       </h2>
       <p className="mt-3 max-w-md text-[15px] leading-relaxed text-ink-soft">
         The counter starts as soon as the bot joins and blocks its first scam.
@@ -242,6 +278,22 @@ function ConnectionError() {
         and the keys in{" "}
         <span className="font-mono text-[13px] text-ink">.env.local</span>, then
         reload the page.
+      </p>
+    </section>
+  );
+}
+
+function DeniedNotice() {
+  return (
+    <section className="mt-12 border-l-2 border-signal py-1 pl-5">
+      <h2 className="font-display text-xl tracking-tight">
+        This group belongs to another account.
+      </h2>
+      <p className="mt-2 max-w-md text-[15px] leading-relaxed text-ink-soft">
+        The founder who claimed it in{" "}
+        <span className="font-mono text-[13px] text-ink">/connect</span> is the
+        only one who can see its dashboard. Sign out, sign in with that
+        account, or connect a group you own.
       </p>
     </section>
   );

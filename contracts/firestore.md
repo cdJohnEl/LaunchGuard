@@ -1,5 +1,19 @@
 # Firestore contract (source of truth)
 
+## Access model (lockdown)
+
+- The bot writes through the **Admin SDK, which bypasses rules**. Rules only
+  govern the web client.
+- **Claims are proof-of-control**: the founder types `/claim <uid>` in their
+  Telegram group; the bot verifies the sender is a group ADMIN (Telegram
+  itself is the authority) and binds `owner_uid` via the Admin SDK. The web
+  client can never write `owner_uid`.
+- `groups/{chatId}`: a signed-in user may `get` only an UNOWNED doc (the
+  /connect claim flow verifies ids) or a doc they own. Owned docs are
+  invisible to everyone else. Nobody may `list`; no client create/delete;
+  only the owner may `update`.
+- `public/stats`: world-readable aggregates; bot-written only.
+
 ## Collection: `groups`
 
 Document ID: `str(chat_id)` (e.g. `"-1001234567890"`). One document per Telegram group the bot is in.

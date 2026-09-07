@@ -16,6 +16,8 @@ from typing import Optional, TypedDict
 import unicodedata
 
 GROUP_COLLECTION = "groups"
+PUBLIC_COLLECTION = "public"
+STATS_DOC = "stats"
 
 # Cyrillic/Greek lookalike folding used by every matcher ("wаllet" with a
 # Cyrillic а must not evade literal detection). NFKC handles fullwidth forms.

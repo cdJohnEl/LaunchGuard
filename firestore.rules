@@ -1,11 +1,39 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // DEVELOPMENT RULES: open on purpose so the dashboard works without auth.
-    // Lock down before launch: require request.auth.uid to match
-    // resource.data.owner_uid on /groups/{chatId}. See README -> "Locking down Firestore".
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner() {
+      return signedIn()
+        && 'owner_uid' in resource.data
+        && resource.data.owner_uid == request.auth.uid;
+    }
+
+    // Group docs are created, claimed (via /claim + Admin SDK), and mutated by
+    // the bot's Admin SDK, which bypasses rules. Rules govern only the web
+    // client: a signed-in user may read an UNOWNED group doc (the /connect
+    // claim flow needs to verify an id) or a doc they own. Owned docs are
+    // invisible to everyone else; listing is denied outright.
     match /groups/{chatId} {
-      allow read, write: if true;
+      allow get: if signedIn() && (
+        (!('owner_uid' in resource.data))
+        || resource.data.owner_uid == null
+        || resource.data.owner_uid == request.auth.uid
+      );
+      allow list: if false;
+      allow create: if false;
+      allow delete: if false;
+      allow update: if isOwner();
+    }
+
+    // Aggregate stats for the public landing page. Written by the bot's
+    // Admin SDK only; world-readable.
+    match /public/{docId} {
+      allow read: if true;
+      allow write: if false;
     }
   }
 }

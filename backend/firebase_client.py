@@ -9,13 +9,13 @@ from typing import Any, Optional
 import config
 
 try:
-    from contracts.schema import GROUP_COLLECTION, doc_id, now_iso
+    from contracts.schema import GROUP_COLLECTION, PUBLIC_COLLECTION, STATS_DOC, doc_id, now_iso
 except ImportError:
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from contracts.schema import GROUP_COLLECTION, doc_id, now_iso
+    from contracts.schema import GROUP_COLLECTION, PUBLIC_COLLECTION, STATS_DOC, doc_id, now_iso
 
 CONFIG_TTL_SECONDS = 30.0
 
@@ -177,11 +177,65 @@ async def ensure_chat(chat_id: int, group_name: str, chat_type: str) -> None:
     _config_cache.pop(doc_id(chat_id), None)
 
 
+def _transactional(db: Any):
+    # Module-level seam so tests can swap the SDK's retrying wrapper for a
+    # passthrough while exercising the claim logic against the fake.
+    from google.cloud.firestore_v1 import transaction as firestore_transaction
+
+    return firestore_transaction.transactional
+
+
+async def claim_group(chat_id: int, owner_uid: str) -> str:
+    """Bind owner_uid to an unowned group. Returns "claimed", "taken",
+    or "not_found". Admin SDK path: proof-of-control is enforced by the bot
+    (the /claim sender must be a Telegram group admin), never by the client."""
+    db = _require_db()
+    transactional = _transactional(db)
+
+    def _claim() -> str:
+        ref = db.collection(GROUP_COLLECTION).document(doc_id(chat_id))
+
+        @transactional
+        def _tx(transaction) -> str:
+            snap = ref.get(transaction=transaction)
+            if not snap.exists:
+                return "not_found"
+            current = (snap.to_dict() or {}).get("owner_uid")
+            if isinstance(current, str) and current != "":
+                return "taken"
+            transaction.update(ref, {"owner_uid": owner_uid, "updated_at": now_iso()})
+            return "claimed"
+
+        return _tx(db.transaction())
+
+    result = await asyncio.to_thread(_claim)
+    _config_cache.pop(doc_id(chat_id), None)
+    return result
+
+
 async def set_chat_active(chat_id: int, active: bool) -> None:
     db = _require_db()
     ref = db.collection(GROUP_COLLECTION).document(doc_id(chat_id))
     await asyncio.to_thread(
         lambda: ref.set({"active": active, "updated_at": now_iso()}, merge=True)
+    )
+    await refresh_active_groups_count()
+
+
+def _count_active_docs(db: Any) -> int:
+    query = db.collection(GROUP_COLLECTION).where("active", "==", True).count()
+    return int(query.get()[0][0].value)
+
+
+async def refresh_active_groups_count() -> None:
+    # Joins/leaves are rare events: recompute instead of risking a drifted
+    # increment-only counter (remove + re-add would double-count otherwise).
+    db = _require_db()
+    active = await asyncio.to_thread(_count_active_docs, db)
+    await asyncio.to_thread(
+        lambda: db.collection(PUBLIC_COLLECTION).document(STATS_DOC).set(
+            {"active_groups": active, "updated_at": now_iso()}, merge=True
+        )
     )
 
 
@@ -189,13 +243,23 @@ async def increment_scams_blocked(chat_id: int, amount: int = 1) -> None:
     db = _require_db()
     from firebase_admin import firestore
 
-    ref = db.collection(GROUP_COLLECTION).document(doc_id(chat_id))
-    await asyncio.to_thread(
-        lambda: ref.set(
+    def _write() -> None:
+        # One atomic batch: the per-group counter and the public landing total
+        # can never drift apart.
+        batch = db.batch()
+        batch.set(
+            db.collection(GROUP_COLLECTION).document(doc_id(chat_id)),
             {"scams_blocked": firestore.Increment(amount), "updated_at": now_iso()},
             merge=True,
         )
-    )
+        batch.set(
+            db.collection(PUBLIC_COLLECTION).document(STATS_DOC),
+            {"total_blocked": firestore.Increment(amount), "updated_at": now_iso()},
+            merge=True,
+        )
+        batch.commit()
+
+    await asyncio.to_thread(_write)
 
 
 async def get_chat(chat_id: int) -> Optional[dict]:

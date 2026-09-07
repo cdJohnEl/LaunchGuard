@@ -1,56 +1,54 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  collection,
-  getAggregateFromServer,
-  count,
-  query,
-  sum,
-  where,
-} from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { formatScamCount } from "@/lib/counter";
 import { SetupRequired } from "@/components/landing/SetupRequired";
+
+type StatsDoc = { total_blocked: number; active_groups: number };
 
 type RecordState =
   | { s: "loading" }
   | { s: "error" }
   | { s: "ready"; blocked: number; groups: number };
 
+function readStats(data: Record<string, unknown> | undefined): StatsDoc {
+  const blocked = typeof data?.total_blocked === "number" ? data.total_blocked : 0;
+  const groups = typeof data?.active_groups === "number" ? data.active_groups : 0;
+  return {
+    total_blocked: Number.isFinite(blocked) ? Math.max(0, Math.trunc(blocked)) : 0,
+    active_groups: Number.isFinite(groups) ? Math.max(0, Math.trunc(groups)) : 0,
+  };
+}
+
 /**
- * The live record: total scams blocked (server-side sum of scams_blocked) and
- * groups protected (server-side count of docs with active true). Aggregations,
- * not document downloads: visitors never read other founders' docs, and the
- * numbers survive locked-down rules. Quiet while loading, honest when
- * Firestore is down, and an honest zero when nothing has been blocked yet.
+ * The live record, from the world-readable public/stats doc the bot
+ * maintains (total scams blocked + active group count). Real-time via
+ * onSnapshot; honest zeros; honest outage state.
  */
 export function LiveRecord() {
   const [state, setState] = useState<RecordState>({ s: "loading" });
 
   useEffect(() => {
     if (!firebaseConfigured) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const groups = collection(db, "groups");
-        const [blockedAgg, activeAgg] = await Promise.all([
-          getAggregateFromServer(groups, { blocked: sum("scams_blocked") }),
-          getAggregateFromServer(query(groups, where("active", "==", true)), {
-            protected: count(),
-          }),
-        ]);
-        const blocked = Math.max(0, Math.trunc(blockedAgg.data().blocked ?? 0));
-        const groupsActive = activeAgg.data().protected ?? 0;
-        if (!cancelled) setState({ s: "ready", blocked, groups: groupsActive });
-      } catch (error) {
+    const unsubscribe = onSnapshot(
+      doc(db, "public", "stats"),
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          // No stats doc yet: nothing has happened. Honest zeros.
+          setState({ s: "ready", blocked: 0, groups: 0 });
+          return;
+        }
+        const stats = readStats(snapshot.data());
+        setState({ s: "ready", blocked: stats.total_blocked, groups: stats.active_groups });
+      },
+      (error) => {
         console.error(error);
-        if (!cancelled) setState({ s: "error" });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+        setState({ s: "error" });
+      },
+    );
+    return unsubscribe;
   }, []);
 
   if (!firebaseConfigured) {

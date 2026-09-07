@@ -80,8 +80,17 @@ def welcome_text(chat_id: int) -> str:
 _admin_cache: dict[int, tuple[float, set[int]]] = {}
 
 
+CLAIM_USAGE_TEXT = (
+    "Claim usage: type /claim followed by your founder code from the "
+    "Launch Guard dashboard, e.g. /claim 8f2a1c..."
+)
+
+CLAIM_NOT_ADMIN_TEXT = "Only group admins can claim this group for a founder account."
+
+
 def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("start", cmd_start))
+    application.add_handler(CommandHandler("claim", cmd_claim))
     application.add_handler(ChatMemberHandler(on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     # No ~filters.COMMAND here: registered commands are consumed by the
     # CommandHandler above, but a scam message starting with an unregistered
@@ -175,6 +184,38 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(chat_id=chat.id, text=text)
     except Exception:
         logger.exception("cmd_start failed for update %s", getattr(update, "update_id", None))
+
+
+async def cmd_claim(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        chat = update.effective_chat
+        message = update.message
+        if chat is None or message is None or chat.type not in _GROUP_TYPES:
+            return
+        founder_uid = command_remainder(message).split(None, 1)
+        code = founder_uid[0] if founder_uid else ""
+        if not code:
+            await context.bot.send_message(chat_id=chat.id, text=CLAIM_USAGE_TEXT)
+            return
+        sender = message.from_user
+        if sender is None or sender.is_bot:
+            return
+        if not is_admin(sender.id, await get_admin_ids(context.bot, chat.id)):
+            await context.bot.send_message(chat_id=chat.id, text=CLAIM_NOT_ADMIN_TEXT)
+            return
+        result = await firebase_client.claim_group(chat.id, code)
+        if result == "claimed":
+            reply = "Claimed. This group's dashboard is bound to that founder account."
+        elif result == "taken":
+            reply = "This group is already claimed by another founder account."
+        else:
+            reply = (
+                "This group isn't registered yet — remove and re-add me, "
+                "then run /claim again."
+            )
+        await context.bot.send_message(chat_id=chat.id, text=reply)
+    except Exception:
+        logger.exception("cmd_claim failed for update %s", getattr(update, "update_id", None))
 
 
 async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -20,7 +20,7 @@ LaunchGuard/
 │   ├── tests/            gate tests (offline, deterministic, < 3s)
 │   └── evals/            labeled scam/ham dataset + precision/recall harness
 ├── frontend/             Next.js App Router dashboard (Tailwind, Firebase Client SDK)
-└── firestore.rules       dev-open rules; lock down before launch (see below)
+└── firestore.rules       locked-down rules (Google auth + proof-of-control claims)
 ```
 
 ## Prerequisites
@@ -80,8 +80,8 @@ Both modes register the same handlers. The server boots with zero env vars set
 
 ```bash
 cd backend
-.venv/bin/pytest -q                          # 146 gate tests, ~2.5s, offline
-.venv/bin/python evals/eval_scam_engine.py   # precision/recall on 81 labeled rows
+.venv/bin/pytest -q                          # 205 gate tests, ~2.5s, offline
+.venv/bin/python evals/eval_scam_engine.py   # precision/recall on 92 labeled rows
 ```
 
 The eval exits non-zero if scam recall < 0.85 or false-positive rate > 0.15.
@@ -108,18 +108,28 @@ npm run test    # vitest
 npm run build   # production build
 ```
 
-### Firestore rules
+### Firestore rules (locked-down mode)
 
-`firestore.rules` is intentionally open for local development. Deploy it with:
+Groups are private to the founder who claimed them. The access model:
 
-```bash
-firebase deploy --only firestore:rules
-```
+- The bot writes through the Admin SDK, which bypasses rules entirely.
+- Founders sign in with Google (Firebase Auth) on the dashboard.
+- **Claims are proof-of-control**: `/connect` shows the founder a command,
+  they type `/claim <code>` in their Telegram group, and the bot binds
+  `owner_uid` only after verifying the sender is a group ADMIN. The web
+  client can never write `owner_uid`; the rules forbid it outright.
+- Owned group docs are invisible to every other account; unowned docs are
+  readable signed-in (the connect flow verifies ids). Nobody can list or
+  delete groups. `public/stats` is the only world-readable doc (the
+  landing's live totals).
 
-**Before launch**, replace the open match with an auth check
-(`request.auth.uid == resource.data.owner_uid`) once founder sign-in exists.
-The dashboard currently assumes dev-open rules; adding Firebase Auth to the
-dashboard is the follow-up that unlocks the locked rules.
+Deploy the rules and enable the auth provider (both are console steps):
+
+1. Firebase console -> Firestore -> Rules: paste `firestore.rules`, Publish.
+   (Or `firebase login` once, then `firebase deploy --only firestore:rules`.)
+2. Firebase console -> Authentication -> Sign-in method: enable **Google**.
+3. Groups registered before claiming existed are claimable by their first
+   admin to run `/claim`.
 
 ## Filling in the real LLM (tier 2)
 
@@ -149,7 +159,12 @@ every provider, and any provider error or timeout fails open (no delete).
 
 ## Known gaps (by design, MVP scope)
 
-- No dashboard auth yet; `owner_uid` stays null until Firebase Auth lands.
+- Any signed-in Google account can read a single UNOWNED group doc by id (the
+  connect flow verifies ids before claiming); owned docs are invisible to
+  everyone but their owner. Unowned docs are therefore readable signed-in
+  until claimed — claim early.
+- A group co-admin can run `/claim` and bind the group to their own founder
+  account: Telegram admin rights are the trust boundary, by design.
 - Edited messages are ignored entirely (they are a spam vector, not scanned).
 - FAQ matching is literal keyword-in-message (word boundary, case-insensitive);
   no fuzzy or embedding matching yet.

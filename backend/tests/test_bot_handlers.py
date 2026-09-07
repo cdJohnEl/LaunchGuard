@@ -34,6 +34,8 @@ class StubFirebase:
         self.ensure_chat_calls: list[tuple[int, str, str]] = []
         self.active_calls: list[tuple[int, bool]] = []
         self.increment_calls: list[tuple[int, int]] = []
+        self.claim_result = "claimed"
+        self.claim_calls: list[tuple[int, str]] = []
 
     async def get_chat_config(self, chat_id: int) -> dict:
         self.config_calls.append(chat_id)
@@ -47,6 +49,10 @@ class StubFirebase:
 
     async def increment_scams_blocked(self, chat_id: int, amount: int = 1) -> None:
         self.increment_calls.append((chat_id, amount))
+
+    async def claim_group(self, chat_id: int, owner_uid: str) -> str:
+        self.claim_calls.append((chat_id, owner_uid))
+        return self.claim_result
 
 
 class BrokenFirebase(StubFirebase):
@@ -439,6 +445,7 @@ def test_build_application_registers_handlers_in_order_and_has_no_updater():
     handlers = application.handlers[0]
     assert [type(handler) for handler in handlers] == [
         CommandHandler,
+        CommandHandler,
         ChatMemberHandler,
         MessageHandler,
     ]
@@ -652,3 +659,86 @@ def test_welcome_message_contains_the_chat_id():
     text = bot.welcome_text(-5251747453)
     assert "-5251747453" in text
     assert "Delete messages" in text
+
+
+# --- proof-of-control /claim regressions ---
+
+
+async def test_claim_by_group_admin_binds_founder(monkeypatch):
+    firebase = StubFirebase()
+    firebase.claim_result = "claimed"
+    fake_bot, ctx = wire(monkeypatch, firebase, StubScamEngine())
+    fake_bot.admin_ids = {42}
+    update = Update(
+        update_id=10,
+        message=make_command_message("/claim uid-founder-abc", 6),
+    )
+
+    await bot.cmd_claim(update, ctx)
+
+    assert firebase.claim_calls == [(-100123, "uid-founder-abc")]
+    assert "Claimed" in fake_bot.sent[0]["text"]
+
+
+async def test_claim_by_non_admin_is_refused(monkeypatch):
+    firebase = StubFirebase()
+    fake_bot, ctx = wire(monkeypatch, firebase, StubScamEngine())
+    update = Update(
+        update_id=11,
+        message=make_command_message("/claim uid-founder-abc", 6),
+    )
+
+    await bot.cmd_claim(update, ctx)
+
+    assert firebase.claim_calls == []
+    assert "admins" in fake_bot.sent[0]["text"]
+
+
+async def test_claim_taken_replies_already_claimed(monkeypatch):
+    firebase = StubFirebase()
+    firebase.claim_result = "taken"
+    fake_bot, ctx = wire(monkeypatch, firebase, StubScamEngine())
+    fake_bot.admin_ids = {42}
+    update = Update(
+        update_id=12,
+        message=make_command_message("/claim uid-founder-abc", 6),
+    )
+
+    await bot.cmd_claim(update, ctx)
+
+    assert firebase.claim_calls == [(-100123, "uid-founder-abc")]
+    assert "already claimed" in fake_bot.sent[0]["text"]
+
+
+async def test_claim_without_code_replies_usage(monkeypatch):
+    firebase = StubFirebase()
+    fake_bot, ctx = wire(monkeypatch, firebase, StubScamEngine())
+    fake_bot.admin_ids = {42}
+    update = Update(
+        update_id=13,
+        message=make_command_message("/claim", 6),
+    )
+
+    await bot.cmd_claim(update, ctx)
+
+    assert firebase.claim_calls == []
+    assert "usage" in fake_bot.sent[0]["text"].lower()
+
+
+async def test_claim_in_private_chat_is_ignored(monkeypatch):
+    firebase = StubFirebase()
+    fake_bot, ctx = wire(monkeypatch, firebase, StubScamEngine())
+    chat = make_chat(chat_id=555, chat_type="private", title=None)
+    update = Update(
+        update_id=14,
+        message=make_message(
+            text="/claim uid-founder-abc",
+            chat=chat,
+            entities=[MessageEntity(type=MessageEntity.BOT_COMMAND, offset=0, length=6)],
+        ),
+    )
+
+    await bot.cmd_claim(update, ctx)
+
+    assert firebase.claim_calls == []
+    assert fake_bot.sent == []
