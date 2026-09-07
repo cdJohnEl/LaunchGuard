@@ -47,8 +47,10 @@ Environment variables (see `backend/.env.example`):
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | alternative to the path above | full service-account JSON as one string (handy on Railway/Render) |
 | `WEBHOOK_URL` | for webhook mode | public HTTPS base URL, no trailing slash |
 | `TELEGRAM_WEBHOOK_SECRET` | recommended | random string Telegram echoes in a header; `openssl rand -hex 32` |
-| `LAUNCHGUARD_LLM_PROVIDER` | no (default `mock`) | `mock` or `claude_cli` |
+| `LAUNCHGUARD_LLM_PROVIDER` | no (default `mock`) | `mock`, `groq`, or `claude_cli` |
 | `LLM_TIMEOUT_SECONDS` | no (default 10) | tier-2 call timeout; on timeout the bot fails open (no delete) |
+| `GROQ_API_KEY` | when provider is `groq` | from console.groq.com -> API keys |
+| `GROQ_MODEL` | no (default `llama-3.1-8b-instant`) | any Groq-hosted model id |
 
 ### Running
 
@@ -121,14 +123,20 @@ dashboard is the follow-up that unlocks the locked rules.
 
 ## Filling in the real LLM (tier 2)
 
-Tier 2 ships with a deterministic mock provider. Your options, in project-policy order:
+Tier 2 ships with a deterministic mock provider. Your options:
 
-1. `LAUNCHGUARD_LLM_PROVIDER=claude_cli` — routes through the local Claude Code
-   CLI (`claude -p`), no API key or hosted API involved. Already implemented.
-2. `openai_check_intent` / `gemini_check_intent` in `backend/llm_service.py` —
+1. `LAUNCHGUARD_LLM_PROVIDER=groq` — hosted Groq (OpenAI-compatible, JSON mode).
+   Set `GROQ_API_KEY` (console.groq.com -> API keys) and optionally `GROQ_MODEL`
+   (default `llama-3.1-8b-instant`, the low-latency pick; `llama-3.3-70b-versatile`
+   is the stronger classifier).
+2. `LAUNCHGUARD_LLM_PROVIDER=claude_cli` — routes through the local Claude Code
+   CLI (`claude -p`), no API key or hosted API involved.
+3. `openai_check_intent` / `gemini_check_intent` in `backend/llm_service.py` —
    stubs raising `NotImplementedError` with exact instructions in their
-   docstrings (endpoint, request shape, return type). Fill one in, register it
-   in the provider table in the same file, and set the env var.
+   docstrings.
+
+The user message is framed as untrusted content between `<message>` tags for
+every provider, and any provider error or timeout fails open (no delete).
 
 ## What to restart after changes
 

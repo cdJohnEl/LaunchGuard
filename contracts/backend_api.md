@@ -62,7 +62,9 @@ async def check_intent(text: str) -> ScamVerdict  # from contracts.schema
 
 Providers:
 - `mock` (default): deterministic heuristic placeholder, no network.
-- `claude_cli`: shells out to local `claude -p` (project policy: local Claude Code, not a hosted API).
+- `groq`: hosted Groq chat completions (OpenAI-compatible, JSON mode, httpx),
+  env `GROQ_API_KEY` + optional `GROQ_MODEL` (default `llama-3.1-8b-instant`).
+- `claude_cli`: shells out to local `claude -p`.
 - `openai_check_intent(text, api_key) -> ScamVerdict` and `gemini_check_intent(...)`:
   stubs that raise NotImplementedError with fill-me-in instructions.
 

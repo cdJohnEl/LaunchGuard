@@ -93,6 +93,15 @@ def google_credentials_json() -> Optional[str]:
     return value or None
 
 
+def groq_api_key() -> Optional[str]:
+    value = _env("GROQ_API_KEY")
+    return value or None
+
+
+def groq_model() -> str:
+    return _env("GROQ_MODEL", "llama-3.1-8b-instant") or "llama-3.1-8b-instant"
+
+
 def llm_provider() -> str:
     return _env("LAUNCHGUARD_LLM_PROVIDER", "mock") or "mock"
 

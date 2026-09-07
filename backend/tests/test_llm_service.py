@@ -3,6 +3,7 @@ import asyncio
 
 import pytest
 
+import config
 import llm_service
 from llm_service import (
     LLMError,
@@ -10,6 +11,7 @@ from llm_service import (
     check_intent,
     claude_cli_check_intent,
     gemini_check_intent,
+    groq_check_intent,
     mock_check_intent,
     openai_check_intent,
     _parse_verdict,
@@ -263,3 +265,121 @@ async def test_claude_cli_prompt_frames_user_text_as_untrusted(monkeypatch):
     assert "<\\/message>" in prompt
     assert prompt.count("<message>\n") == 1  # exactly one frame opening
     assert prompt.endswith("\n</message>")
+
+
+# --- groq provider ---
+
+
+class FakeGroqResponse:
+    def __init__(self, status_code=200, content=None, payload=None, text=""):
+        self.status_code = status_code
+        self._content = content
+        self._payload = payload if payload is not None else (
+            {"choices": [{"message": {"content": content}}]} if content is not None else {}
+        )
+        self.text = text
+
+    def json(self):
+        return self._payload
+
+
+class FakeGroqClient:
+    def __init__(self, response=None, error=None):
+        self._response = response
+        self._error = error
+        self.captured = {}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def post(self, url, headers=None, json=None):
+        self.captured = {"url": url, "headers": headers, "json": json}
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
+def _patch_groq(monkeypatch, client, timeout_exc=None, http_exc=None):
+    class FakeHttpx:
+        AsyncClient = lambda **kwargs: client  # noqa: E731
+        TimeoutException = timeout_exc or type("TimeoutException", (Exception,), {})
+        HTTPError = http_exc or type("HTTPError", (Exception,), {})
+
+    monkeypatch.setattr(llm_service, "httpx", FakeHttpx)
+
+
+async def test_groq_success(monkeypatch):
+    client = FakeGroqClient(
+        response=FakeGroqResponse(
+            content='{"is_scam": true, "reason": "drain bait", "confidence": 0.9}'
+        )
+    )
+    _patch_groq(monkeypatch, client)
+    verdict = await groq_check_intent("claim your airdrop", "gsk_key", "llama-3.1-8b-instant", 5)
+    assert verdict == {"is_scam": True, "reason": "drain bait", "confidence": 0.9}
+    assert client.captured["url"] == "https://api.groq.com/openai/v1/chat/completions"
+    assert client.captured["headers"]["Authorization"] == "Bearer gsk_key"
+    assert client.captured["json"]["model"] == "llama-3.1-8b-instant"
+    assert client.captured["json"]["response_format"] == {"type": "json_object"}
+    assert "<message>" in client.captured["json"]["messages"][1]["content"]
+
+
+async def test_groq_non_200_raises(monkeypatch):
+    _patch_groq(monkeypatch, FakeGroqClient(response=FakeGroqResponse(401, text="bad key")))
+    with pytest.raises(LLMError, match="401"):
+        await groq_check_intent("x", "key", "m", 5)
+
+
+async def test_groq_timeout_raises(monkeypatch):
+    class FakeTimeout(Exception):
+        pass
+
+    class FailingClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, *args, **kwargs):
+            raise FakeTimeout()
+
+    _patch_groq(monkeypatch, FailingClient(), timeout_exc=FakeTimeout)
+    with pytest.raises(LLMError, match="timed out"):
+        await groq_check_intent("x", "key", "m", 5)
+
+
+async def test_groq_malformed_body_raises(monkeypatch):
+    _patch_groq(monkeypatch, FakeGroqClient(response=FakeGroqResponse(payload={"nope": 1})))
+    with pytest.raises(LLMError, match="missing completion content"):
+        await groq_check_intent("x", "key", "m", 5)
+
+
+async def test_groq_dispatch_requires_api_key(monkeypatch):
+    monkeypatch.setattr(config, "_dotenv_loaded", True)
+    monkeypatch.setattr(config, "llm_provider", lambda: "groq")
+    monkeypatch.setattr(config, "groq_api_key", lambda: None)
+    with pytest.raises(LLMError, match="GROQ_API_KEY"):
+        await check_intent("anything")
+
+
+async def test_groq_dispatch_full_path(monkeypatch):
+    sent = {}
+
+    async def fake_groq(text, api_key, model, timeout_seconds):
+        sent.update({"text": text, "key": api_key, "model": model, "timeout": timeout_seconds})
+        return {"is_scam": False, "reason": "ok", "confidence": 0.5}
+
+    monkeypatch.setattr(llm_service, "groq_check_intent", fake_groq)
+    monkeypatch.setattr(config, "_dotenv_loaded", True)
+    monkeypatch.setattr(config, "llm_provider", lambda: "groq")
+    monkeypatch.setattr(config, "groq_api_key", lambda: "gsk_live")
+    monkeypatch.setattr(config, "groq_model", lambda: "llama-3.3-70b-versatile")
+    monkeypatch.setattr(config, "llm_timeout_seconds", lambda: 7)
+
+    verdict = await check_intent("gm")
+    assert verdict["is_scam"] is False
+    assert sent == {"text": "gm", "key": "gsk_live", "model": "llama-3.3-70b-versatile", "timeout": 7}
