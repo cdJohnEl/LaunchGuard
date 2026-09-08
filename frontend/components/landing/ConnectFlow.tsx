@@ -45,6 +45,7 @@ export function ConnectFlow() {
   const [draft, setDraft] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [state, setState] = useState<FlowState>({ s: "form" });
+  const [watchError, setWatchError] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -194,6 +195,8 @@ export function ConnectFlow() {
             <PendingClaim
               group={state.group}
               userUid={user.uid}
+              watchError={watchError}
+              onWatchError={() => setWatchError(true)}
               onResolved={(ownerUid) =>
                 setState({
                   s: "found",
@@ -333,17 +336,22 @@ function FoundPanel({
 function PendingClaim({
   group,
   userUid,
+  watchError,
+  onWatchError,
   onResolved,
   onCancel,
 }: {
   group: FoundGroup;
   userUid: string;
+  watchError: boolean;
+  onWatchError: () => void;
   onResolved: (ownerUid: string) => void;
   onCancel: () => void;
 }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    onWatchError();
     const unsubscribe = onSnapshot(
       doc(db, "groups", group.chatId),
       (snapshot) => {
@@ -357,7 +365,11 @@ function PendingClaim({
           onResolved(owner);
         }
       },
-      (error) => console.error(error),
+      (error) => {
+        console.error(error);
+        // A silent wait would hide a rules or connection problem.
+        onWatchError();
+      },
     );
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -395,14 +407,21 @@ function PendingClaim({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-5 md:px-8">
-        <p className="flex items-center gap-2 text-[15px] text-ink-soft">
-          <span
-            className="inline-block h-2 w-2 animate-pulse rounded-full bg-signal"
-            aria-hidden="true"
-          />
-          Waiting for the command in {group.name ?? "your group"}… If someone
-          claims it first, this page tells you instead of waiting.
-        </p>
+        {watchError ? (
+          <p role="alert" className="err max-w-md">
+            Lost the live watch on the group — the command may have landed
+            anyway. Reload the page to check.
+          </p>
+        ) : (
+          <p className="flex items-center gap-2 text-[15px] text-ink-soft">
+            <span
+              className="inline-block h-2 w-2 animate-pulse rounded-full bg-signal"
+              aria-hidden="true"
+            />
+            Waiting for the command in {group.name ?? "your group"}… If someone
+            claims it first, this page tells you instead of waiting.
+          </p>
+        )}
         <button type="button" className="btn-quiet" onClick={onCancel}>
           Cancel
         </button>
