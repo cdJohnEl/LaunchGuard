@@ -206,7 +206,11 @@ async def cmd_claim(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         result = await firebase_client.claim_group(chat.id, code)
         if result == "claimed":
-            reply = "Claimed. This group's dashboard is bound to that founder account."
+            reply = (
+                f"Claimed. Bound to founder account ending …{code[-6:]}. "
+                "If that tail doesn't match your dashboard, /unclaim and retry "
+                "with the copied code."
+            )
         elif result == "taken":
             reply = "This group is already claimed by another founder account."
         else:

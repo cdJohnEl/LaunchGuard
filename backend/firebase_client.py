@@ -201,7 +201,7 @@ async def claim_group(chat_id: int, owner_uid: str) -> str:
             if not snap.exists:
                 return "not_found"
             current = (snap.to_dict() or {}).get("owner_uid")
-            if isinstance(current, str) and current != "":
+            if isinstance(current, str) and current != "" and current != owner_uid:
                 return "taken"
             transaction.update(ref, {"owner_uid": owner_uid, "updated_at": now_iso()})
             return "claimed"

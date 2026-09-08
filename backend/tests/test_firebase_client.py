@@ -665,11 +665,13 @@ async def test_claim_group_not_found():
     assert await firebase_client.claim_group(-100999, "uid-abc") == "not_found"
 
 
-async def test_claim_group_reattach_by_same_owner_is_fine():
+async def test_claim_group_reattach_by_same_owner_is_idempotent():
+    # Re-running /claim with your own code must succeed, not "taken": a
+    # rightful owner re-claiming after a page reload is normal.
     fs = use_fake(FakeFirestore())
     seed_doc(fs, -100123, {"chat_id": -100123, "owner_uid": "uid-abc"})
     result = await firebase_client.claim_group(-100123, "uid-abc")
-    assert result == "taken"
+    assert result == "claimed"
     assert fs.doc_ref(-100123).get().to_dict()["owner_uid"] == "uid-abc"
 
 
