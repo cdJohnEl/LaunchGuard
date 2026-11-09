@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { FirebaseError } from "firebase/app";
 import { onSnapshot, doc } from "firebase/firestore";
 import { db, firebaseConfigured } from "@/lib/firebase";
@@ -230,9 +231,18 @@ export default function DashboardPage() {
       <main className="grow">{content}</main>
 
       <footer className="mt-16 flex flex-wrap items-baseline justify-between gap-2 border-t border-rule py-5">
-        <p className="text-xs text-ink-soft">
-          Launch Guard — Telegram moderation for Web3 founders
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-xs text-ink-soft">
+            Launch Guard — Telegram moderation for Web3 founders
+          </p>
+          <span className="text-ink-faint">·</span>
+          <Link
+            href="/admin"
+            className="text-xs text-ink-soft hover:text-ink font-mono font-medium underline"
+          >
+            Admin Console
+          </Link>
+        </div>
         <p className="text-xs text-ink-soft">Live via Firestore, updates in real time</p>
       </footer>
     </div>

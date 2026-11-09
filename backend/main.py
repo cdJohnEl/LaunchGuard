@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from telegram import Update
 
@@ -100,6 +101,138 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="LaunchGuard", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def _is_admin_authorized(request: Request) -> bool:
+    key = (
+        request.headers.get("X-Admin-Key")
+        or request.headers.get("x-admin-key")
+        or request.query_params.get("admin_key")
+        or request.query_params.get("key")
+    )
+    if not key:
+        return False
+    expected = config.admin_api_key()
+    return hmac.compare_digest(key.encode("utf-8", "replace"), expected.encode("utf-8"))
+
+
+def _admin_auth_error() -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        content={"error": "unauthorized", "message": "Invalid or missing X-Admin-Key header."},
+    )
+
+
+@app.get("/api/admin/stats")
+async def admin_stats(request: Request) -> JSONResponse:
+    if not _is_admin_authorized(request):
+        return _admin_auth_error()
+    if not getattr(request.app.state, "firebase_ready", False):
+        return JSONResponse(status_code=503, content={"error": "firebase_not_ready"})
+    stats = await firebase_client.get_admin_stats()
+    return JSONResponse(content=stats)
+
+
+@app.get("/api/admin/groups")
+async def admin_list_groups(request: Request) -> JSONResponse:
+    if not _is_admin_authorized(request):
+        return _admin_auth_error()
+    if not getattr(request.app.state, "firebase_ready", False):
+        return JSONResponse(status_code=503, content={"error": "firebase_not_ready"})
+    groups = await firebase_client.list_all_groups()
+    return JSONResponse(content={"groups": groups})
+
+
+@app.post("/api/admin/groups")
+async def admin_create_group(request: Request) -> JSONResponse:
+    if not _is_admin_authorized(request):
+        return _admin_auth_error()
+    if not getattr(request.app.state, "firebase_ready", False):
+        return JSONResponse(status_code=503, content={"error": "firebase_not_ready"})
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid_json"})
+    raw_chat_id = body.get("chat_id")
+    if raw_chat_id is None:
+        return JSONResponse(status_code=400, content={"error": "chat_id is required"})
+    try:
+        chat_id = int(raw_chat_id)
+    except (ValueError, TypeError):
+        return JSONResponse(status_code=400, content={"error": "chat_id must be an integer"})
+    group_name = str(body.get("group_name", "")).strip() or f"Group {chat_id}"
+    active = bool(body.get("active", True))
+    owner_uid = body.get("owner_uid")
+    if owner_uid is not None:
+        owner_uid = str(owner_uid).strip() or None
+    subscription_status = str(body.get("subscription_status", "trial"))
+    created = await firebase_client.create_group_manual(
+        chat_id=chat_id,
+        group_name=group_name,
+        active=active,
+        owner_uid=owner_uid,
+        subscription_status=subscription_status,
+    )
+    return JSONResponse(status_code=201, content={"ok": True, "group": created})
+
+
+@app.get("/api/admin/groups/{chat_id}")
+async def admin_get_group(chat_id: int, request: Request) -> JSONResponse:
+    if not _is_admin_authorized(request):
+        return _admin_auth_error()
+    if not getattr(request.app.state, "firebase_ready", False):
+        return JSONResponse(status_code=503, content={"error": "firebase_not_ready"})
+    group = await firebase_client.get_chat(chat_id)
+    if group is None:
+        return JSONResponse(status_code=404, content={"error": "group_not_found"})
+    return JSONResponse(content={"group": group})
+
+
+@app.patch("/api/admin/groups/{chat_id}")
+async def admin_update_group(chat_id: int, request: Request) -> JSONResponse:
+    if not _is_admin_authorized(request):
+        return _admin_auth_error()
+    if not getattr(request.app.state, "firebase_ready", False):
+        return JSONResponse(status_code=503, content={"error": "firebase_not_ready"})
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid_json"})
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"error": "body must be an object"})
+    allowed_fields = {
+        "group_name",
+        "active",
+        "owner_uid",
+        "subscription_status",
+        "scams_blocked",
+        "scam_keywords",
+        "faq_pairs",
+    }
+    updates = {k: v for k, v in body.items() if k in allowed_fields}
+    if not updates:
+        return JSONResponse(status_code=400, content={"error": "no_valid_fields_to_update"})
+    updated = await firebase_client.update_group(chat_id, updates)
+    return JSONResponse(content={"ok": True, "group": updated})
+
+
+@app.delete("/api/admin/groups/{chat_id}")
+async def admin_delete_group(chat_id: int, request: Request) -> JSONResponse:
+    if not _is_admin_authorized(request):
+        return _admin_auth_error()
+    if not getattr(request.app.state, "firebase_ready", False):
+        return JSONResponse(status_code=503, content={"error": "firebase_not_ready"})
+    deleted = await firebase_client.delete_group(chat_id)
+    return JSONResponse(content={"ok": deleted, "chat_id": chat_id})
+
 
 
 @app.get("/")

@@ -382,3 +382,106 @@ async def delete_faq_pair(chat_id: int, keyword: str) -> None:
 
     await asyncio.to_thread(_delete)
     _config_cache.pop(doc_id(chat_id), None)
+
+
+async def list_all_groups() -> list[dict[str, Any]]:
+    db = _require_db()
+
+    def _read() -> list[dict[str, Any]]:
+        docs = db.collection(GROUP_COLLECTION).stream()
+        results: list[dict[str, Any]] = []
+        for d in docs:
+            data = d.to_dict() or {}
+            data["id"] = d.id
+            if "chat_id" not in data:
+                try:
+                    data["chat_id"] = int(d.id)
+                except ValueError:
+                    data["chat_id"] = d.id
+            results.append(data)
+        results.sort(
+            key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""), reverse=True
+        )
+        return results
+
+    return await asyncio.to_thread(_read)
+
+
+async def get_admin_stats() -> dict[str, Any]:
+    groups = await list_all_groups()
+    total_groups = len(groups)
+    active_groups = sum(1 for g in groups if g.get("active", False))
+    claimed_groups = sum(1 for g in groups if bool(g.get("owner_uid")))
+    total_blocked = sum(int(g.get("scams_blocked", 0) or 0) for g in groups)
+    return {
+        "total_groups": total_groups,
+        "active_groups": active_groups,
+        "claimed_groups": claimed_groups,
+        "total_blocked": total_blocked,
+    }
+
+
+async def create_group_manual(
+    chat_id: int,
+    group_name: str,
+    active: bool = True,
+    owner_uid: Optional[str] = None,
+    subscription_status: str = "trial",
+) -> dict[str, Any]:
+    db = _require_db()
+    ref = db.collection(GROUP_COLLECTION).document(doc_id(chat_id))
+    now = now_iso()
+    doc_data = {
+        "chat_id": chat_id,
+        "group_name": group_name,
+        "owner_uid": owner_uid or None,
+        "active": bool(active),
+        "subscription_status": subscription_status,
+        "scams_blocked": 0,
+        "scam_keywords": [],
+        "faq_pairs": {},
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    def _create() -> dict[str, Any]:
+        ref.set(doc_data, merge=True)
+        return ref.get().to_dict() or doc_data
+
+    created = await asyncio.to_thread(_create)
+    _config_cache.pop(doc_id(chat_id), None)
+    await refresh_active_groups_count()
+    return created
+
+
+async def update_group(chat_id: int, updates: dict[str, Any]) -> dict[str, Any]:
+    db = _require_db()
+    ref = db.collection(GROUP_COLLECTION).document(doc_id(chat_id))
+
+    def _update() -> dict[str, Any]:
+        payload = dict(updates)
+        payload["updated_at"] = now_iso()
+        ref.set(payload, merge=True)
+        snap = ref.get()
+        return snap.to_dict() or {}
+
+    updated = await asyncio.to_thread(_update)
+    _config_cache.pop(doc_id(chat_id), None)
+    if "active" in updates:
+        await refresh_active_groups_count()
+    return updated
+
+
+async def delete_group(chat_id: int) -> bool:
+    db = _require_db()
+    ref = db.collection(GROUP_COLLECTION).document(doc_id(chat_id))
+
+    def _del() -> bool:
+        ref.delete()
+        return True
+
+    res = await asyncio.to_thread(_del)
+    _config_cache.pop(doc_id(chat_id), None)
+    await refresh_active_groups_count()
+    return res
+

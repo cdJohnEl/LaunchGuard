@@ -115,3 +115,8 @@ def llm_timeout_seconds() -> float:
             f"LLM_TIMEOUT_SECONDS={raw!r} is not a number. "
             "Fix: set LLM_TIMEOUT_SECONDS to seconds, e.g. 10."
         ) from exc
+
+
+def admin_api_key() -> str:
+    return _env("LAUNCHGUARD_ADMIN_KEY") or _env("ADMIN_API_KEY") or "launchguard_admin_2026"
+
