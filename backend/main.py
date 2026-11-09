@@ -102,6 +102,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="LaunchGuard", lifespan=lifespan)
 
 
+@app.get("/")
+async def root() -> dict[str, Any]:
+    return {
+        "service": "LaunchGuard Backend",
+        "status": "online",
+        "health": "/healthz",
+        "docs": "/docs",
+    }
+
+
 @app.post(WEBHOOK_PATH)
 async def webhook(request: Request) -> JSONResponse:
     application = getattr(request.app.state, "application", None)
