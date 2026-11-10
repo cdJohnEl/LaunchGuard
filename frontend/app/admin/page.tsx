@@ -393,9 +393,7 @@ export default function AdminDashboardPage() {
                 className="w-full px-3 py-2 border border-rule rounded-lg text-sm focus:outline-none focus:border-ink font-mono"
                 required
               />
-              <p className="text-[11px] text-ink-faint mt-1">
-                Default key is configured in backend environment (<code className="bg-gray-100 px-1 rounded">launchguard_admin_2026</code>).
-              </p>
+
             </div>
 
             <div>
@@ -449,11 +447,10 @@ export default function AdminDashboardPage() {
       {/* Toast Notification */}
       {notification && (
         <div
-          className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-lg shadow-lg text-sm flex items-center gap-2 border ${
-            notification.type === "success"
+          className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-lg shadow-lg text-sm flex items-center gap-2 border ${notification.type === "success"
               ? "bg-white text-ink border-emerald-500 shadow-emerald-500/10"
               : "bg-signal-tint text-signal border-signal/30"
-          }`}
+            }`}
         >
           {notification.type === "success" ? (
             <Check className="w-4 h-4 text-emerald-600" />
@@ -526,11 +523,10 @@ export default function AdminDashboardPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-6 border-t border-rule/50">
           <button
             onClick={() => setActiveTab("groups")}
-            className={`py-3 text-xs font-mono uppercase tracking-wider font-semibold border-b-2 transition flex items-center gap-2 ${
-              activeTab === "groups"
+            className={`py-3 text-xs font-mono uppercase tracking-wider font-semibold border-b-2 transition flex items-center gap-2 ${activeTab === "groups"
                 ? "border-ink text-ink"
                 : "border-transparent text-ink-soft hover:text-ink"
-            }`}
+              }`}
           >
             <Users className="w-3.5 h-3.5" />
             <span>Communities & CRUD ({groups.length})</span>
@@ -541,11 +537,10 @@ export default function AdminDashboardPage() {
               setActiveTab("analytics");
               if (!analytics) loadAnalytics(adminKey);
             }}
-            className={`py-3 text-xs font-mono uppercase tracking-wider font-semibold border-b-2 transition flex items-center gap-2 ${
-              activeTab === "analytics"
+            className={`py-3 text-xs font-mono uppercase tracking-wider font-semibold border-b-2 transition flex items-center gap-2 ${activeTab === "analytics"
                 ? "border-signal text-signal"
                 : "border-transparent text-ink-soft hover:text-ink"
-            }`}
+              }`}
           >
             <BarChart3 className="w-3.5 h-3.5" />
             <span>Real-Time Traffic & Analytics</span>
@@ -635,11 +630,10 @@ export default function AdminDashboardPage() {
                       <button
                         key={tab}
                         onClick={() => setFilterStatus(tab)}
-                        className={`px-2.5 py-1 rounded capitalize font-medium transition ${
-                          filterStatus === tab
+                        className={`px-2.5 py-1 rounded capitalize font-medium transition ${filterStatus === tab
                             ? "bg-white text-ink shadow-xs"
                             : "text-ink-soft hover:text-ink"
-                        }`}
+                          }`}
                       >
                         {tab}
                       </button>
@@ -736,17 +730,15 @@ export default function AdminDashboardPage() {
                             <td className="py-3.5 px-4">
                               <button
                                 onClick={() => toggleGroupActive(group)}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition ${
-                                  group.active
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition ${group.active
                                     ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                                     : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                                }`}
+                                  }`}
                                 title="Click to toggle active status"
                               >
                                 <span
-                                  className={`w-1.5 h-1.5 rounded-full ${
-                                    group.active ? "bg-emerald-500" : "bg-gray-400"
-                                  }`}
+                                  className={`w-1.5 h-1.5 rounded-full ${group.active ? "bg-emerald-500" : "bg-gray-400"
+                                    }`}
                                 />
                                 <span>{group.active ? "Active" : "Inactive"}</span>
                               </button>
@@ -799,8 +791,8 @@ export default function AdminDashboardPage() {
                               {group.updated_at
                                 ? new Date(group.updated_at).toLocaleDateString()
                                 : group.created_at
-                                ? new Date(group.created_at).toLocaleDateString()
-                                : "—"}
+                                  ? new Date(group.created_at).toLocaleDateString()
+                                  : "—"}
                             </td>
 
                             {/* Actions */}
@@ -924,7 +916,7 @@ export default function AdminDashboardPage() {
                   {Math.round(
                     ((analytics?.device_breakdown?.mobile || 0) /
                       Math.max(1, analytics?.total_pageviews || 1)) *
-                      100
+                    100
                   )}
                   % <span className="text-sm font-normal text-ink-soft">Mobile</span>
                 </div>
@@ -1135,13 +1127,12 @@ export default function AdminDashboardPage() {
                           </td>
                           <td className="py-2.5 px-4">
                             <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                                ev.device === "mobile"
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase font-bold ${ev.device === "mobile"
                                   ? "bg-purple-50 text-purple-700 border border-purple-200"
                                   : ev.device === "tablet"
-                                  ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                  : "bg-gray-100 text-gray-700 border border-gray-200"
-                              }`}
+                                    ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                    : "bg-gray-100 text-gray-700 border border-gray-200"
+                                }`}
                             >
                               {ev.device === "mobile" ? (
                                 <Smartphone className="w-2.5 h-2.5" />
