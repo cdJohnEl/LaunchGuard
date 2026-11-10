@@ -485,3 +485,171 @@ async def delete_group(chat_id: int) -> bool:
     await refresh_active_groups_count()
     return res
 
+
+def _clean_path(path: str) -> str:
+    if not path or not isinstance(path, str) or not path.strip():
+        return "/"
+    p = path.strip().split("?")[0].split("#")[0]
+    return p[:64] if p else "/"
+
+
+def _clean_referrer(ref: str) -> str:
+    if not ref or not isinstance(ref, str) or not ref.strip():
+        return "Direct / Unknown"
+    r = ref.lower().strip()
+    if "t.co" in r or "twitter.com" in r or "x.com" in r:
+        return "X / Twitter"
+    if "t.me" in r or "telegram.org" in r:
+        return "Telegram"
+    if "google." in r:
+        return "Google Search"
+    if "reddit." in r:
+        return "Reddit"
+    if "linkedin." in r:
+        return "LinkedIn"
+    if "github." in r:
+        return "GitHub"
+    if "localhost" in r or "127.0.0.1" in r:
+        return "Local Dev"
+    try:
+        from urllib.parse import urlparse
+
+        domain = urlparse(ref).netloc
+        if domain:
+            return domain.lower()
+    except Exception:
+        pass
+    return "Direct / Unknown"
+
+
+async def record_pageview(
+    path: str, referrer: str, visitor_id: str, device: str
+) -> dict[str, Any]:
+    db = _require_db()
+    from datetime import datetime, timezone
+    from firebase_admin import firestore
+
+    now_dt = datetime.now(timezone.utc)
+    today = now_dt.strftime("%Y-%m-%d")
+    now = now_iso()
+
+    clean_p = _clean_path(path)
+    clean_r = _clean_referrer(referrer)
+    dev = device if device in ("desktop", "mobile", "tablet") else "desktop"
+    v_id = (visitor_id or "anon")[:32]
+
+    overview_ref = db.collection("analytics").document("overview")
+    today_ref = db.collection("analytics").document(today)
+    recent_ref = db.collection("analytics").document("recent")
+
+    def _write() -> None:
+        batch = db.batch()
+
+        # Update overview
+        batch.set(
+            overview_ref,
+            {
+                "total_pageviews": firestore.Increment(1),
+                "by_path": {clean_p: firestore.Increment(1)},
+                "by_referrer": {clean_r: firestore.Increment(1)},
+                "by_device": {dev: firestore.Increment(1)},
+                "visitors_seen": firestore.ArrayUnion([v_id]),
+                "updated_at": now,
+            },
+            merge=True,
+        )
+
+        # Update today doc
+        batch.set(
+            today_ref,
+            {
+                "date": today,
+                "pageviews": firestore.Increment(1),
+                "by_path": {clean_p: firestore.Increment(1)},
+                "by_referrer": {clean_r: firestore.Increment(1)},
+                "by_device": {dev: firestore.Increment(1)},
+                "visitors": firestore.ArrayUnion([v_id]),
+                "updated_at": now,
+            },
+            merge=True,
+        )
+
+        batch.commit()
+
+        # Update recent doc (capped at 40 events)
+        r_snap = recent_ref.get()
+        r_events = (r_snap.to_dict() or {}).get("events", []) if r_snap.exists else []
+        new_event = {
+            "path": clean_p,
+            "referrer": clean_r,
+            "device": dev,
+            "timestamp": now,
+        }
+        capped_events = [new_event] + r_events[:39]
+        recent_ref.set({"events": capped_events, "updated_at": now}, merge=True)
+
+    await asyncio.to_thread(_write)
+    return {"ok": True}
+
+
+async def get_analytics_summary() -> dict[str, Any]:
+    db = _require_db()
+    from datetime import datetime, timezone, timedelta
+
+    now_dt = datetime.now(timezone.utc)
+    today_str = now_dt.strftime("%Y-%m-%d")
+
+    overview_ref = db.collection("analytics").document("overview")
+    recent_ref = db.collection("analytics").document("recent")
+
+    days = [(now_dt - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
+
+    def _read() -> dict[str, Any]:
+        o_snap = overview_ref.get()
+        o_data = o_snap.to_dict() or {}
+
+        r_snap = recent_ref.get()
+        r_events = (r_snap.to_dict() or {}).get("events", []) if r_snap.exists else []
+
+        total_views = int(o_data.get("total_pageviews", 0))
+        unique_visitors = len(o_data.get("visitors_seen", [])) or total_views
+
+        by_path = dict(o_data.get("by_path") or {})
+        by_ref = dict(o_data.get("by_referrer") or {})
+        by_dev = dict(o_data.get("by_device") or {})
+
+        top_paths = sorted(by_path.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_refs = sorted(by_ref.items(), key=lambda x: x[1], reverse=True)[:10]
+
+        daily_trend = []
+        today_views = 0
+        today_uniques = 0
+
+        for d in days:
+            d_snap = db.collection("analytics").document(d).get()
+            if d_snap.exists:
+                d_data = d_snap.to_dict() or {}
+                views = int(d_data.get("pageviews", 0))
+                uniques = len(d_data.get("visitors", [])) or views
+                if d == today_str:
+                    today_views = views
+                    today_uniques = uniques
+                daily_trend.append({"date": d, "pageviews": views, "uniques": uniques})
+            else:
+                daily_trend.append({"date": d, "pageviews": 0, "uniques": 0})
+
+        return {
+            "total_pageviews": total_views,
+            "unique_visitors": unique_visitors,
+            "today_pageviews": today_views,
+            "today_uniques": today_uniques,
+            "top_paths": [{"path": k, "count": v} for k, v in top_paths],
+            "top_referrers": [{"referrer": k, "count": v} for k, v in top_refs],
+            "device_breakdown": by_dev,
+            "daily_trend": daily_trend,
+            "recent_visits": r_events[:30],
+        }
+
+    return await asyncio.to_thread(_read)
+
+

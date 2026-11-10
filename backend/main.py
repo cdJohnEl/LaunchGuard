@@ -234,6 +234,46 @@ async def admin_delete_group(chat_id: int, request: Request) -> JSONResponse:
     return JSONResponse(content={"ok": deleted, "chat_id": chat_id})
 
 
+@app.post("/api/analytics/collect")
+async def collect_analytics(request: Request) -> JSONResponse:
+    if not getattr(request.app.state, "firebase_ready", False):
+        return JSONResponse(status_code=503, content={"error": "firebase_not_ready"})
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid_json"})
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"error": "body must be an object"})
+
+    path = str(body.get("path", "/"))
+    # Don't track admin console visits to prevent self-traffic skew
+    if path.startswith("/admin"):
+        return JSONResponse(content={"ok": True, "skipped": True})
+
+    referrer = str(body.get("referrer", ""))
+    visitor_id = str(body.get("visitor_id", "anon"))
+    device = str(body.get("device", "desktop"))
+
+    await firebase_client.record_pageview(
+        path=path,
+        referrer=referrer,
+        visitor_id=visitor_id,
+        device=device,
+    )
+    return JSONResponse(content={"ok": True})
+
+
+@app.get("/api/admin/analytics")
+async def admin_analytics(request: Request) -> JSONResponse:
+    if not _is_admin_authorized(request):
+        return _admin_auth_error()
+    if not getattr(request.app.state, "firebase_ready", False):
+        return JSONResponse(status_code=503, content={"error": "firebase_not_ready"})
+    summary = await firebase_client.get_analytics_summary()
+    return JSONResponse(content=summary)
+
+
+
 
 @app.get("/")
 async def root() -> dict[str, Any]:

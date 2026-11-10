@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   Shield,
@@ -22,15 +22,26 @@ import {
   X,
   ArrowUpDown,
   Server,
+  BarChart3,
+  TrendingUp,
+  Globe,
+  Smartphone,
+  Monitor,
+  Tablet,
+  Eye,
+  Activity,
+  Compass,
 } from "lucide-react";
 import {
   GroupDoc,
   AdminStats,
+  AnalyticsSummary,
   fetchAdminStats,
   fetchAdminGroups,
   createAdminGroup,
   updateAdminGroup,
   deleteAdminGroup,
+  fetchAdminAnalytics,
   getAdminBackendUrl,
 } from "@/lib/adminApi";
 
@@ -46,10 +57,17 @@ export default function AdminDashboardPage() {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Tab state: "groups" | "analytics"
+  const [activeTab, setActiveTab] = useState<"groups" | "analytics">("groups");
+
   // Data states
   const [loading, setLoading] = useState<boolean>(false);
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [groups, setGroups] = useState<GroupDoc[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState<boolean>(false);
+  const [autoRefreshAnalytics, setAutoRefreshAnalytics] = useState<boolean>(false);
+
   const [search, setSearch] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive" | "claimed" | "unclaimed">("all");
   const [sortBy, setSortBy] = useState<"recent" | "blocked" | "name">("recent");
@@ -80,6 +98,9 @@ export default function AdminDashboardPage() {
   const [newFaqVal, setNewFaqVal] = useState<string>("");
   const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
 
+  // Auto-refresh interval ref
+  const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // On mount: check stored key
   useEffect(() => {
     const stored = window.localStorage.getItem(STORAGE_KEY) || DEFAULT_ADMIN_KEY;
@@ -92,6 +113,24 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
+  // Handle auto-refresh for analytics
+  useEffect(() => {
+    if (autoRefreshAnalytics && isAuthorized && adminKey) {
+      autoRefreshTimerRef.current = setInterval(() => {
+        loadAnalytics(adminKey, false);
+      }, 15000); // refresh every 15s
+    } else {
+      if (autoRefreshTimerRef.current) {
+        clearInterval(autoRefreshTimerRef.current);
+      }
+    }
+    return () => {
+      if (autoRefreshTimerRef.current) {
+        clearInterval(autoRefreshTimerRef.current);
+      }
+    };
+  }, [autoRefreshAnalytics, isAuthorized, adminKey]);
+
   const showToast = (text: string, type: "success" | "error" = "success") => {
     setNotification({ type, text });
     setTimeout(() => setNotification(null), 4000);
@@ -103,16 +142,30 @@ export default function AdminDashboardPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const loadAnalytics = async (key: string, showSpinner = true) => {
+    if (showSpinner) setLoadingAnalytics(true);
+    try {
+      const data = await fetchAdminAnalytics(key);
+      setAnalytics(data);
+    } catch (err: any) {
+      console.error("Failed to load analytics:", err);
+    } finally {
+      if (showSpinner) setLoadingAnalytics(false);
+    }
+  };
+
   const verifyAndLoad = async (key: string) => {
     setLoading(true);
     setAuthError(null);
     try {
-      const [statsData, groupsData] = await Promise.all([
+      const [statsData, groupsData, analyticsData] = await Promise.all([
         fetchAdminStats(key),
         fetchAdminGroups(key),
+        fetchAdminAnalytics(key).catch(() => null),
       ]);
       setStats(statsData);
       setGroups(groupsData);
+      if (analyticsData) setAnalytics(analyticsData);
       setAdminKey(key);
       setIsAuthorized(true);
       window.localStorage.setItem(STORAGE_KEY, key);
@@ -128,13 +181,15 @@ export default function AdminDashboardPage() {
     if (!adminKey) return;
     setLoading(true);
     try {
-      const [statsData, groupsData] = await Promise.all([
+      const [statsData, groupsData, analyticsData] = await Promise.all([
         fetchAdminStats(adminKey),
         fetchAdminGroups(adminKey),
+        fetchAdminAnalytics(adminKey).catch(() => null),
       ]);
       setStats(statsData);
       setGroups(groupsData);
-      showToast("Data refreshed from Firestore.");
+      if (analyticsData) setAnalytics(analyticsData);
+      showToast("All data & analytics refreshed.");
     } catch (err: any) {
       showToast(err.message || "Refresh failed", "error");
     } finally {
@@ -157,6 +212,7 @@ export default function AdminDashboardPage() {
     setIsAuthorized(false);
     setGroups([]);
     setStats(null);
+    setAnalytics(null);
   };
 
   // Quick toggle group active status
@@ -382,6 +438,12 @@ export default function AdminDashboardPage() {
     );
   }
 
+  // Max views in daily trend for chart normalization
+  const maxTrendViews = Math.max(
+    1,
+    ...(analytics?.daily_trend?.map((d) => d.pageviews) || [1])
+  );
+
   return (
     <div className="min-h-screen bg-paper font-sans text-ink">
       {/* Toast Notification */}
@@ -426,11 +488,11 @@ export default function AdminDashboardPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={refreshData}
-              disabled={loading}
+              disabled={loading || loadingAnalytics}
               title="Refresh Firestore data"
               className="p-2 border border-rule hover:border-ink rounded-lg text-ink-soft hover:text-ink transition flex items-center gap-1 text-xs"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loading || loadingAnalytics ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
 
@@ -459,281 +521,654 @@ export default function AdminDashboardPage() {
             </button>
           </div>
         </div>
+
+        {/* View Tabs: Groups vs Real-Time Analytics */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-6 border-t border-rule/50">
+          <button
+            onClick={() => setActiveTab("groups")}
+            className={`py-3 text-xs font-mono uppercase tracking-wider font-semibold border-b-2 transition flex items-center gap-2 ${
+              activeTab === "groups"
+                ? "border-ink text-ink"
+                : "border-transparent text-ink-soft hover:text-ink"
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Communities & CRUD ({groups.length})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab("analytics");
+              if (!analytics) loadAnalytics(adminKey);
+            }}
+            className={`py-3 text-xs font-mono uppercase tracking-wider font-semibold border-b-2 transition flex items-center gap-2 ${
+              activeTab === "analytics"
+                ? "border-signal text-signal"
+                : "border-transparent text-ink-soft hover:text-ink"
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Real-Time Traffic & Analytics</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          </button>
+        </div>
       </header>
 
       {/* Main Body */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
-        {/* KPI Summary Cards */}
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
-            <div className="flex items-center justify-between text-ink-soft mb-2">
-              <span className="text-xs font-mono uppercase tracking-wider">Total Groups</span>
-              <Users className="w-4 h-4" />
-            </div>
-            <div className="text-3xl font-display font-bold text-ink">
-              {stats?.total_groups ?? groups.length}
-            </div>
-            <p className="text-xs text-ink-soft mt-1">Onboarded across Telegram</p>
-          </div>
-
-          <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
-            <div className="flex items-center justify-between text-ink-soft mb-2">
-              <span className="text-xs font-mono uppercase tracking-wider">Active Guarding</span>
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            </div>
-            <div className="text-3xl font-display font-bold text-emerald-600">
-              {stats?.active_groups ?? groups.filter((g) => g.active).length}
-            </div>
-            <p className="text-xs text-ink-soft mt-1">Actively deleting scams</p>
-          </div>
-
-          <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
-            <div className="flex items-center justify-between text-ink-soft mb-2">
-              <span className="text-xs font-mono uppercase tracking-wider">Scams Blocked</span>
-              <Shield className="w-4 h-4 text-signal" />
-            </div>
-            <div className="text-3xl font-display font-bold text-signal">
-              {stats?.total_blocked ?? groups.reduce((acc, g) => acc + (g.scams_blocked || 0), 0)}
-            </div>
-            <p className="text-xs text-ink-soft mt-1">Cumulative scam deletions</p>
-          </div>
-
-          <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
-            <div className="flex items-center justify-between text-ink-soft mb-2">
-              <span className="text-xs font-mono uppercase tracking-wider">Claimed by Founders</span>
-              <Radio className="w-4 h-4 text-ink-soft" />
-            </div>
-            <div className="text-3xl font-display font-bold text-ink">
-              {stats?.claimed_groups ?? groups.filter((g) => g.owner_uid).length}
-              <span className="text-base text-ink-faint font-normal"> / {groups.length}</span>
-            </div>
-            <p className="text-xs text-ink-soft mt-1">Bound to founder dashboard</p>
-          </div>
-        </section>
-
-        {/* Action Controls & Filtering Bar */}
-        <section className="bg-white border border-rule rounded-xl p-4 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
-              <input
-                type="text"
-                placeholder="Search by Group Name, Chat ID (-100...), or Founder UID..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-rule rounded-lg text-sm focus:outline-none focus:border-ink font-sans"
-              />
-              {search && (
-                <button
-                  onClick={() => setSearch("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink text-xs"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="flex items-center border border-rule rounded-lg p-1 bg-paper text-xs">
-                {(["all", "active", "inactive", "claimed", "unclaimed"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setFilterStatus(tab)}
-                    className={`px-2.5 py-1 rounded capitalize font-medium transition ${
-                      filterStatus === tab
-                        ? "bg-white text-ink shadow-xs"
-                        : "text-ink-soft hover:text-ink"
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                ))}
+        {/* ================= TAB 1: GROUPS CRUD VIEW ================= */}
+        {activeTab === "groups" && (
+          <>
+            {/* KPI Summary Cards */}
+            <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
+                <div className="flex items-center justify-between text-ink-soft mb-2">
+                  <span className="text-xs font-mono uppercase tracking-wider">Total Groups</span>
+                  <Users className="w-4 h-4" />
+                </div>
+                <div className="text-3xl font-display font-bold text-ink">
+                  {stats?.total_groups ?? groups.length}
+                </div>
+                <p className="text-xs text-ink-soft mt-1">Onboarded across Telegram</p>
               </div>
 
-              <button
-                onClick={() => setIsAddModalOpen(true)}
-                className="px-3.5 py-2 bg-ink text-paper rounded-lg text-xs font-medium hover:bg-ink-hover transition flex items-center gap-1.5 shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Onboard Group</span>
-              </button>
-            </div>
-          </div>
+              <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
+                <div className="flex items-center justify-between text-ink-soft mb-2">
+                  <span className="text-xs font-mono uppercase tracking-wider">Active Guarding</span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                </div>
+                <div className="text-3xl font-display font-bold text-emerald-600">
+                  {stats?.active_groups ?? groups.filter((g) => g.active).length}
+                </div>
+                <p className="text-xs text-ink-soft mt-1">Actively deleting scams</p>
+              </div>
 
-          <div className="flex items-center justify-between text-xs text-ink-soft pt-2 border-t border-rule/60">
-            <div>
-              Showing <span className="font-semibold text-ink">{filteredGroups.length}</span> of{" "}
-              {groups.length} groups
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-ink-faint">Sort by:</span>
-              <select
-                value={sortBy}
-                onChange={(e: any) => setSortBy(e.target.value)}
-                className="bg-transparent border border-rule rounded px-2 py-0.5 text-xs text-ink focus:outline-none"
-              >
-                <option value="recent">Recently Updated</option>
-                <option value="blocked">Most Scams Blocked</option>
-                <option value="name">Group Name (A-Z)</option>
-              </select>
-            </div>
-          </div>
-        </section>
+              <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
+                <div className="flex items-center justify-between text-ink-soft mb-2">
+                  <span className="text-xs font-mono uppercase tracking-wider">Scams Blocked</span>
+                  <Shield className="w-4 h-4 text-signal" />
+                </div>
+                <div className="text-3xl font-display font-bold text-signal">
+                  {stats?.total_blocked ?? groups.reduce((acc, g) => acc + (g.scams_blocked || 0), 0)}
+                </div>
+                <p className="text-xs text-ink-soft mt-1">Cumulative scam detections</p>
+              </div>
 
-        {/* Groups Data Table */}
-        <section className="bg-white border border-rule rounded-xl shadow-xs overflow-hidden">
-          {filteredGroups.length === 0 ? (
-            <div className="py-16 text-center text-ink-soft">
-              <Users className="w-10 h-10 mx-auto text-ink-faint mb-3 stroke-[1.5]" />
-              <h3 className="font-display font-medium text-lg text-ink">No groups found</h3>
-              <p className="text-xs text-ink-soft max-w-sm mx-auto mt-1">
-                {search
-                  ? "No communities match your search filters."
-                  : "No groups have been onboarded yet. Add your bot to a Telegram group or click 'Onboard Group' above."}
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-paper border-b border-rule text-[11px] font-mono uppercase tracking-wider text-ink-soft">
-                  <tr>
-                    <th className="py-3 px-4">Group / Community</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Founder Claim</th>
-                    <th className="py-3 px-4 text-center">Scams Blocked</th>
-                    <th className="py-3 px-4 text-center">FAQ Pairs</th>
-                    <th className="py-3 px-4">Last Sync</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-rule">
-                  {filteredGroups.map((group) => {
-                    const hasOwner = Boolean(group.owner_uid);
-                    const faqCount = Object.keys(group.faq_pairs || {}).length;
-                    return (
-                      <tr key={group.chat_id} className="hover:bg-paper/50 transition">
-                        {/* Group Name & ID */}
-                        <td className="py-3.5 px-4">
-                          <div className="font-medium text-ink flex items-center gap-1.5">
-                            <span>{group.group_name || "Unnamed Group"}</span>
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rule/70 uppercase">
-                              {group.subscription_status || "trial"}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-xs text-ink-soft font-mono mt-0.5">
-                            <span>{group.chat_id}</span>
-                            <button
-                              onClick={() => copyToClipboard(String(group.chat_id), `chat-${group.chat_id}`)}
-                              className="text-ink-faint hover:text-ink"
-                              title="Copy Chat ID"
-                            >
-                              {copiedId === `chat-${group.chat_id}` ? (
-                                <Check className="w-3 h-3 text-emerald-600" />
-                              ) : (
-                                <Copy className="w-3 h-3" />
-                              )}
-                            </button>
-                          </div>
-                        </td>
+              <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
+                <div className="flex items-center justify-between text-ink-soft mb-2">
+                  <span className="text-xs font-mono uppercase tracking-wider">Claimed by Founders</span>
+                  <Radio className="w-4 h-4 text-ink-soft" />
+                </div>
+                <div className="text-3xl font-display font-bold text-ink">
+                  {stats?.claimed_groups ?? groups.filter((g) => g.owner_uid).length}
+                  <span className="text-base text-ink-faint font-normal"> / {groups.length}</span>
+                </div>
+                <p className="text-xs text-ink-soft mt-1">Bound to founder dashboard</p>
+              </div>
+            </section>
 
-                        {/* Status (Toggle switch) */}
-                        <td className="py-3.5 px-4">
-                          <button
-                            onClick={() => toggleGroupActive(group)}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition ${
-                              group.active
-                                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                                : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                            }`}
-                            title="Click to toggle active status"
-                          >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                group.active ? "bg-emerald-500" : "bg-gray-400"
-                              }`}
-                            />
-                            <span>{group.active ? "Active" : "Inactive"}</span>
-                          </button>
-                        </td>
+            {/* Action Controls & Filtering Bar */}
+            <section className="bg-white border border-rule rounded-xl p-4 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
+                  <input
+                    type="text"
+                    placeholder="Search by Group Name, Chat ID (-100...), or Founder UID..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border border-rule rounded-lg text-sm focus:outline-none focus:border-ink font-sans"
+                  />
+                  {search && (
+                    <button
+                      onClick={() => setSearch("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink text-xs"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
 
-                        {/* Owner / Claimed */}
-                        <td className="py-3.5 px-4">
-                          {hasOwner ? (
-                            <div className="flex items-center gap-1.5 font-mono text-xs text-ink">
-                              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded">
-                                …{group.owner_uid?.slice(-6)}
-                              </span>
-                              <button
-                                onClick={() => copyToClipboard(group.owner_uid || "", `owner-${group.chat_id}`)}
-                                className="text-ink-faint hover:text-ink"
-                                title="Copy full UID"
-                              >
-                                {copiedId === `owner-${group.chat_id}` ? (
-                                  <Check className="w-3 h-3 text-emerald-600" />
-                                ) : (
-                                  <Copy className="w-3 h-3" />
-                                )}
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="inline-block px-2 py-0.5 text-xs font-mono rounded bg-amber-50 text-amber-700 border border-amber-200">
-                              Unclaimed
-                            </span>
-                          )}
-                        </td>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center border border-rule rounded-lg p-1 bg-paper text-xs">
+                    {(["all", "active", "inactive", "claimed", "unclaimed"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setFilterStatus(tab)}
+                        className={`px-2.5 py-1 rounded capitalize font-medium transition ${
+                          filterStatus === tab
+                            ? "bg-white text-ink shadow-xs"
+                            : "text-ink-soft hover:text-ink"
+                        }`}
+                      >
+                        {tab}
+                      </button>
+                    ))}
+                  </div>
 
-                        {/* Scams Blocked */}
-                        <td className="py-3.5 px-4 text-center">
-                          <span className="inline-flex items-center gap-1 font-mono font-bold text-signal bg-signal-tint/60 px-2.5 py-0.5 rounded-full text-xs">
-                            <Shield className="w-3 h-3" />
-                            {group.scams_blocked || 0}
-                          </span>
-                        </td>
+                  <button
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="px-3.5 py-2 bg-ink text-paper rounded-lg text-xs font-medium hover:bg-ink-hover transition flex items-center gap-1.5 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Onboard Group</span>
+                  </button>
+                </div>
+              </div>
 
-                        {/* FAQ Pairs */}
-                        <td className="py-3.5 px-4 text-center">
-                          <span className="inline-flex items-center gap-1 font-mono text-xs px-2 py-0.5 rounded bg-rule/50 text-ink">
-                            <MessageSquare className="w-3 h-3 text-ink-faint" />
-                            {faqCount}
-                          </span>
-                        </td>
+              <div className="flex items-center justify-between text-xs text-ink-soft pt-2 border-t border-rule/60">
+                <div>
+                  Showing <span className="font-semibold text-ink">{filteredGroups.length}</span> of{" "}
+                  {groups.length} groups
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-ink-faint">Sort by:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e: any) => setSortBy(e.target.value)}
+                    className="bg-transparent border border-rule rounded px-2 py-0.5 text-xs text-ink focus:outline-none"
+                  >
+                    <option value="recent">Recently Updated</option>
+                    <option value="blocked">Most Scams Blocked</option>
+                    <option value="name">Group Name (A-Z)</option>
+                  </select>
+                </div>
+              </div>
+            </section>
 
-                        {/* Last Sync */}
-                        <td className="py-3.5 px-4 text-xs text-ink-soft">
-                          {group.updated_at
-                            ? new Date(group.updated_at).toLocaleDateString()
-                            : group.created_at
-                            ? new Date(group.created_at).toLocaleDateString()
-                            : "—"}
-                        </td>
-
-                        {/* Actions */}
-                        <td className="py-3.5 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => openEditModal(group)}
-                              className="p-1.5 text-ink-soft hover:text-ink hover:bg-rule/40 rounded transition"
-                              title="Edit group configuration"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setGroupToDelete(group)}
-                              className="p-1.5 text-ink-faint hover:text-signal hover:bg-signal-tint rounded transition"
-                              title="Delete group permanently"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+            {/* Groups Data Table */}
+            <section className="bg-white border border-rule rounded-xl shadow-xs overflow-hidden">
+              {filteredGroups.length === 0 ? (
+                <div className="py-16 text-center text-ink-soft">
+                  <Users className="w-10 h-10 mx-auto text-ink-faint mb-3 stroke-[1.5]" />
+                  <h3 className="font-display font-medium text-lg text-ink">No groups found</h3>
+                  <p className="text-xs text-ink-soft max-w-sm mx-auto mt-1">
+                    {search
+                      ? "No communities match your search filters."
+                      : "No groups have been onboarded yet. Add your bot to a Telegram group or click 'Onboard Group' above."}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-paper border-b border-rule text-[11px] font-mono uppercase tracking-wider text-ink-soft">
+                      <tr>
+                        <th className="py-3 px-4">Group / Community</th>
+                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4">Founder Claim</th>
+                        <th className="py-3 px-4 text-center">Scams Blocked</th>
+                        <th className="py-3 px-4 text-center">FAQ Pairs</th>
+                        <th className="py-3 px-4">Last Sync</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-rule">
+                      {filteredGroups.map((group) => {
+                        const hasOwner = Boolean(group.owner_uid);
+                        const faqCount = Object.keys(group.faq_pairs || {}).length;
+                        return (
+                          <tr key={group.chat_id} className="hover:bg-paper/50 transition">
+                            {/* Group Name & ID */}
+                            <td className="py-3.5 px-4">
+                              <div className="font-medium text-ink flex items-center gap-1.5">
+                                <span>{group.group_name || "Unnamed Group"}</span>
+                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rule/70 uppercase">
+                                  {group.subscription_status || "trial"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-xs text-ink-soft font-mono mt-0.5">
+                                <span>{group.chat_id}</span>
+                                <button
+                                  onClick={() => copyToClipboard(String(group.chat_id), `chat-${group.chat_id}`)}
+                                  className="text-ink-faint hover:text-ink"
+                                  title="Copy Chat ID"
+                                >
+                                  {copiedId === `chat-${group.chat_id}` ? (
+                                    <Check className="w-3 h-3 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3 h-3" />
+                                  )}
+                                </button>
+                              </div>
+                            </td>
+
+                            {/* Status (Toggle switch) */}
+                            <td className="py-3.5 px-4">
+                              <button
+                                onClick={() => toggleGroupActive(group)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition ${
+                                  group.active
+                                    ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                    : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                                }`}
+                                title="Click to toggle active status"
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    group.active ? "bg-emerald-500" : "bg-gray-400"
+                                  }`}
+                                />
+                                <span>{group.active ? "Active" : "Inactive"}</span>
+                              </button>
+                            </td>
+
+                            {/* Owner / Claimed */}
+                            <td className="py-3.5 px-4">
+                              {hasOwner ? (
+                                <div className="flex items-center gap-1.5 font-mono text-xs text-ink">
+                                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded">
+                                    …{group.owner_uid?.slice(-6)}
+                                  </span>
+                                  <button
+                                    onClick={() => copyToClipboard(group.owner_uid || "", `owner-${group.chat_id}`)}
+                                    className="text-ink-faint hover:text-ink"
+                                    title="Copy full UID"
+                                  >
+                                    {copiedId === `owner-${group.chat_id}` ? (
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="inline-block px-2 py-0.5 text-xs font-mono rounded bg-amber-50 text-amber-700 border border-amber-200">
+                                  Unclaimed
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Scams Blocked */}
+                            <td className="py-3.5 px-4 text-center">
+                              <span className="inline-flex items-center gap-1 font-mono font-bold text-signal bg-signal-tint/60 px-2.5 py-0.5 rounded-full text-xs">
+                                <Shield className="w-3 h-3" />
+                                {group.scams_blocked || 0}
+                              </span>
+                            </td>
+
+                            {/* FAQ Pairs */}
+                            <td className="py-3.5 px-4 text-center">
+                              <span className="inline-flex items-center gap-1 font-mono text-xs px-2 py-0.5 rounded bg-rule/50 text-ink">
+                                <MessageSquare className="w-3 h-3 text-ink-faint" />
+                                {faqCount}
+                              </span>
+                            </td>
+
+                            {/* Last Sync */}
+                            <td className="py-3.5 px-4 text-xs text-ink-soft">
+                              {group.updated_at
+                                ? new Date(group.updated_at).toLocaleDateString()
+                                : group.created_at
+                                ? new Date(group.created_at).toLocaleDateString()
+                                : "—"}
+                            </td>
+
+                            {/* Actions */}
+                            <td className="py-3.5 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => openEditModal(group)}
+                                  className="p-1.5 text-ink-soft hover:text-ink hover:bg-rule/40 rounded transition"
+                                  title="Edit group configuration"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => setGroupToDelete(group)}
+                                  className="p-1.5 text-ink-faint hover:text-signal hover:bg-signal-tint rounded transition"
+                                  title="Delete group permanently"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
+        {/* ================= TAB 2: REAL-TIME ANALYTICS VIEW ================= */}
+        {activeTab === "analytics" && (
+          <div className="space-y-8">
+            {/* Header controls for Analytics */}
+            <div className="flex flex-wrap items-center justify-between gap-4 bg-white border border-rule rounded-xl p-4 shadow-xs">
+              <div>
+                <h2 className="font-display font-bold text-lg text-ink flex items-center gap-2">
+                  <span>First-Party Real Web Analytics</span>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold">
+                    Live Real Data
+                  </span>
+                </h2>
+                <p className="text-xs text-ink-soft">
+                  Tracked securely across Landing, Dashboard, and Connect pages directly in Firestore.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-xs font-mono text-ink-soft cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoRefreshAnalytics}
+                    onChange={(e) => setAutoRefreshAnalytics(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-rule text-ink focus:ring-ink"
+                  />
+                  <span>Live poll (15s)</span>
+                </label>
+
+                <button
+                  onClick={() => loadAnalytics(adminKey)}
+                  disabled={loadingAnalytics}
+                  className="px-3 py-1.5 bg-ink text-paper rounded-lg text-xs font-medium hover:bg-ink-hover transition flex items-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingAnalytics ? "animate-spin" : ""}`} />
+                  <span>Refresh Traffic</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Analytics Hero KPIs */}
+            <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
+                <div className="flex items-center justify-between text-ink-soft mb-2">
+                  <span className="text-xs font-mono uppercase tracking-wider">Total Pageviews</span>
+                  <Eye className="w-4 h-4" />
+                </div>
+                <div className="text-3xl font-display font-bold text-ink">
+                  {analytics?.total_pageviews ?? 0}
+                </div>
+                <div className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                  <span>+{analytics?.today_pageviews ?? 0}</span>
+                  <span className="text-ink-soft font-normal">today</span>
+                </div>
+              </div>
+
+              <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
+                <div className="flex items-center justify-between text-ink-soft mb-2">
+                  <span className="text-xs font-mono uppercase tracking-wider">Unique Visitors</span>
+                  <Users className="w-4 h-4 text-emerald-600" />
+                </div>
+                <div className="text-3xl font-display font-bold text-emerald-600">
+                  {analytics?.unique_visitors ?? 0}
+                </div>
+                <div className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                  <span>+{analytics?.today_uniques ?? 0}</span>
+                  <span className="text-ink-soft font-normal">unique today</span>
+                </div>
+              </div>
+
+              <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
+                <div className="flex items-center justify-between text-ink-soft mb-2">
+                  <span className="text-xs font-mono uppercase tracking-wider">Top Source</span>
+                  <Compass className="w-4 h-4 text-signal" />
+                </div>
+                <div className="text-xl font-display font-bold text-ink truncate">
+                  {analytics?.top_referrers?.[0]?.referrer || "Direct"}
+                </div>
+                <p className="text-xs text-ink-soft mt-1">
+                  {analytics?.top_referrers?.[0]?.count || 0} visits from this source
+                </p>
+              </div>
+
+              <div className="bg-white border border-rule rounded-xl p-5 shadow-xs">
+                <div className="flex items-center justify-between text-ink-soft mb-2">
+                  <span className="text-xs font-mono uppercase tracking-wider">Mobile vs Desktop</span>
+                  <Smartphone className="w-4 h-4" />
+                </div>
+                <div className="text-2xl font-display font-bold text-ink">
+                  {Math.round(
+                    ((analytics?.device_breakdown?.mobile || 0) /
+                      Math.max(1, analytics?.total_pageviews || 1)) *
+                      100
+                  )}
+                  % <span className="text-sm font-normal text-ink-soft">Mobile</span>
+                </div>
+                <p className="text-xs text-ink-soft mt-1">
+                  {analytics?.device_breakdown?.desktop || 0} Desktop / {analytics?.device_breakdown?.mobile || 0} Mobile
+                </p>
+              </div>
+            </section>
+
+            {/* 7-Day Traffic Trend Bar Chart */}
+            <section className="bg-white border border-rule rounded-xl p-5 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-display font-bold text-base text-ink">Daily Visits (Last 7 Days)</h3>
+                  <p className="text-xs text-ink-soft">Pageviews vs unique human visitors</p>
+                </div>
+                <div className="flex items-center gap-4 text-xs font-mono">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-ink" />
+                    <span>Pageviews</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+                    <span>Uniques</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 pb-2">
+                <div className="grid grid-cols-7 gap-2 sm:gap-4 items-end h-44 border-b border-rule">
+                  {(analytics?.daily_trend || []).map((day) => {
+                    const viewHeight = Math.max(8, (day.pageviews / maxTrendViews) * 100);
+                    const uniqueHeight = Math.max(4, (day.uniques / maxTrendViews) * 100);
+                    const formattedDate = new Date(day.date).toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "numeric",
+                      day: "numeric",
+                    });
+
+                    return (
+                      <div key={day.date} className="flex flex-col items-center h-full justify-end group">
+                        <div className="w-full flex items-end justify-center gap-1 sm:gap-1.5 h-full pb-1">
+                          {/* Views bar */}
+                          <div
+                            style={{ height: `${viewHeight}%` }}
+                            className="w-1/2 max-w-[24px] bg-ink rounded-t-sm transition-all group-hover:bg-ink-hover relative"
+                            title={`${day.date}: ${day.pageviews} views`}
+                          >
+                            <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-mono opacity-0 group-hover:opacity-100 transition whitespace-nowrap bg-black text-white px-1 rounded">
+                              {day.pageviews}
+                            </span>
+                          </div>
+
+                          {/* Uniques bar */}
+                          <div
+                            style={{ height: `${uniqueHeight}%` }}
+                            className="w-1/2 max-w-[24px] bg-emerald-500 rounded-t-sm transition-all group-hover:bg-emerald-600 relative"
+                            title={`${day.date}: ${day.uniques} unique visitors`}
+                          >
+                            <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-mono opacity-0 group-hover:opacity-100 transition whitespace-nowrap bg-emerald-700 text-white px-1 rounded">
+                              {day.uniques}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] sm:text-xs text-ink-soft font-mono mt-2 truncate w-full text-center">
+                          {formattedDate}
+                        </span>
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
+                </div>
+              </div>
+            </section>
+
+            {/* 2-Column Breakdown: Top Pages vs Top Traffic Sources */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Top Pages */}
+              <section className="bg-white border border-rule rounded-xl p-5 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-rule pb-3">
+                  <h3 className="font-display font-bold text-base text-ink flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-ink-soft" />
+                    <span>Top Visited Pages</span>
+                  </h3>
+                  <span className="text-xs font-mono text-ink-soft">Views</span>
+                </div>
+
+                <div className="space-y-3">
+                  {(analytics?.top_paths || []).length === 0 ? (
+                    <p className="text-xs text-ink-faint italic py-4 text-center">No pageview data recorded yet.</p>
+                  ) : (
+                    analytics?.top_paths.map((p) => {
+                      const share = Math.round(
+                        (p.count / Math.max(1, analytics?.total_pageviews || 1)) * 100
+                      );
+                      return (
+                        <div key={p.path} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-mono font-medium text-ink truncate max-w-[260px]">
+                              {p.path}
+                            </span>
+                            <div className="flex items-center gap-2 font-mono">
+                              <span className="font-bold text-ink">{p.count}</span>
+                              <span className="text-ink-faint text-[10px]">({share}%)</span>
+                            </div>
+                          </div>
+                          <div className="w-full bg-paper rounded-full h-1.5 overflow-hidden">
+                            <div
+                              style={{ width: `${share}%` }}
+                              className="bg-ink h-full rounded-full transition-all"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+
+              {/* Traffic Sources / Referrers */}
+              <section className="bg-white border border-rule rounded-xl p-5 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-rule pb-3">
+                  <h3 className="font-display font-bold text-base text-ink flex items-center gap-2">
+                    <Compass className="w-4 h-4 text-signal" />
+                    <span>Traffic Acquisition Sources</span>
+                  </h3>
+                  <span className="text-xs font-mono text-ink-soft">Visitors</span>
+                </div>
+
+                <div className="space-y-3">
+                  {(analytics?.top_referrers || []).length === 0 ? (
+                    <p className="text-xs text-ink-faint italic py-4 text-center">No referral data recorded yet.</p>
+                  ) : (
+                    analytics?.top_referrers.map((r) => {
+                      const share = Math.round(
+                        (r.count / Math.max(1, analytics?.total_pageviews || 1)) * 100
+                      );
+                      return (
+                        <div key={r.referrer} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-ink truncate max-w-[260px] flex items-center gap-1.5">
+                              {r.referrer.includes("Twitter") || r.referrer.includes("X") ? (
+                                <span className="text-black font-bold text-[11px]">𝕏</span>
+                              ) : r.referrer.includes("Telegram") ? (
+                                <span className="text-blue-500 font-bold text-[11px]">✈</span>
+                              ) : (
+                                <Globe className="w-3 h-3 text-ink-faint" />
+                              )}
+                              <span>{r.referrer}</span>
+                            </span>
+                            <div className="flex items-center gap-2 font-mono">
+                              <span className="font-bold text-ink">{r.count}</span>
+                              <span className="text-ink-faint text-[10px]">({share}%)</span>
+                            </div>
+                          </div>
+                          <div className="w-full bg-paper rounded-full h-1.5 overflow-hidden">
+                            <div
+                              style={{ width: `${share}%` }}
+                              className="bg-emerald-600 h-full rounded-full transition-all"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
             </div>
-          )}
-        </section>
+
+            {/* Real-Time Live Activity Feed */}
+            <section className="bg-white border border-rule rounded-xl shadow-xs overflow-hidden">
+              <div className="p-4 border-b border-rule flex items-center justify-between">
+                <div>
+                  <h3 className="font-display font-bold text-base text-ink flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-emerald-600 animate-pulse" />
+                    <span>Live Real-Time Activity Log</span>
+                  </h3>
+                  <p className="text-xs text-ink-soft">The last 30 page visits as they happen</p>
+                </div>
+                <span className="text-xs font-mono text-ink-soft">
+                  {analytics?.recent_visits?.length || 0} visits recorded
+                </span>
+              </div>
+
+              {(!analytics?.recent_visits || analytics.recent_visits.length === 0) ? (
+                <div className="py-12 text-center text-ink-soft">
+                  <Activity className="w-8 h-8 mx-auto text-ink-faint mb-2" />
+                  <p className="text-xs">Waiting for incoming website visitors...</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-paper border-b border-rule text-[11px] font-mono uppercase tracking-wider text-ink-soft">
+                      <tr>
+                        <th className="py-2.5 px-4">Page Route</th>
+                        <th className="py-2.5 px-4">Traffic Source</th>
+                        <th className="py-2.5 px-4">Device</th>
+                        <th className="py-2.5 px-4 text-right">Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-rule font-mono">
+                      {analytics.recent_visits.map((ev, i) => (
+                        <tr key={i} className="hover:bg-paper/50 transition">
+                          <td className="py-2.5 px-4 font-semibold text-ink">
+                            {ev.path}
+                          </td>
+                          <td className="py-2.5 px-4 text-ink-soft font-sans">
+                            {ev.referrer}
+                          </td>
+                          <td className="py-2.5 px-4">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                                ev.device === "mobile"
+                                  ? "bg-purple-50 text-purple-700 border border-purple-200"
+                                  : ev.device === "tablet"
+                                  ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                  : "bg-gray-100 text-gray-700 border border-gray-200"
+                              }`}
+                            >
+                              {ev.device === "mobile" ? (
+                                <Smartphone className="w-2.5 h-2.5" />
+                              ) : ev.device === "tablet" ? (
+                                <Tablet className="w-2.5 h-2.5" />
+                              ) : (
+                                <Monitor className="w-2.5 h-2.5" />
+                              )}
+                              <span>{ev.device}</span>
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right text-ink-faint">
+                            {new Date(ev.timestamp).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
       </main>
 
       {/* ================= MODAL: EDIT GROUP (FULL CRUD) ================= */}
@@ -1126,4 +1561,3 @@ export default function AdminDashboardPage() {
     </div>
   );
 }
-

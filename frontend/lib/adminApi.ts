@@ -23,6 +23,24 @@ export interface AdminStats {
   total_blocked: number;
 }
 
+export interface AnalyticsSummary {
+  total_pageviews: number;
+  unique_visitors: number;
+  today_pageviews: number;
+  today_uniques: number;
+  top_paths: { path: string; count: number }[];
+  top_referrers: { referrer: string; count: number }[];
+  device_breakdown: Record<string, number>;
+  daily_trend: { date: string; pageviews: number; uniques: number }[];
+  recent_visits: {
+    path: string;
+    referrer: string;
+    device: string;
+    timestamp: string;
+  }[];
+}
+
+
 export function getAdminBackendUrl(): string {
   if (typeof window !== "undefined") {
     const custom = window.localStorage.getItem("launchguard:admin_backend_url");
@@ -75,6 +93,11 @@ async function adminRequest<T>(
 export async function fetchAdminStats(adminKey: string): Promise<AdminStats> {
   return adminRequest<AdminStats>("/api/admin/stats", adminKey);
 }
+
+export async function fetchAdminAnalytics(adminKey: string): Promise<AnalyticsSummary> {
+  return adminRequest<AnalyticsSummary>("/api/admin/analytics", adminKey);
+}
+
 
 export async function fetchAdminGroups(adminKey: string): Promise<GroupDoc[]> {
   const data = await adminRequest<{ groups: GroupDoc[] }>("/api/admin/groups", adminKey);

@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter, Newsreader } from "next/font/google";
+import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import "./globals.css";
 
 const newsreader = Newsreader({
@@ -37,7 +39,12 @@ export default function RootLayout({
       lang="en"
       className={`${newsreader.variable} ${inter.variable} ${plexMono.variable}`}
     >
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <Suspense fallback={null}>
+          <AnalyticsTracker />
+        </Suspense>
+        {children}
+      </body>
     </html>
   );
 }

@@ -114,3 +114,55 @@ async def test_admin_delete_group_success(valid_headers, ready_state):
         assert data["ok"] is True
         assert data["chat_id"] == -1001
 
+
+async def test_analytics_collect_success(ready_state):
+    body = {
+        "path": "/dashboard",
+        "referrer": "https://t.co/abc",
+        "visitor_id": "v_test123",
+        "device": "mobile",
+    }
+    req = StubAdminRequest(ready_state, body=body)
+    with patch("firebase_client.record_pageview", new_callable=AsyncMock) as m:
+        m.return_value = {"ok": True}
+        res = await main.collect_analytics(req)
+        assert res.status_code == 200
+        assert json.loads(res.body) == {"ok": True}
+        m.assert_called_once_with(
+            path="/dashboard",
+            referrer="https://t.co/abc",
+            visitor_id="v_test123",
+            device="mobile",
+        )
+
+
+async def test_analytics_collect_skips_admin(ready_state):
+    body = {"path": "/admin/settings"}
+    req = StubAdminRequest(ready_state, body=body)
+    with patch("firebase_client.record_pageview", new_callable=AsyncMock) as m:
+        res = await main.collect_analytics(req)
+        assert res.status_code == 200
+        assert json.loads(res.body) == {"ok": True, "skipped": True}
+        m.assert_not_called()
+
+
+async def test_admin_analytics_success(valid_headers, ready_state):
+    req = StubAdminRequest(ready_state, headers=valid_headers)
+    mock_summary = {
+        "total_pageviews": 100,
+        "unique_visitors": 50,
+        "today_pageviews": 20,
+        "today_uniques": 10,
+        "top_paths": [{"path": "/", "count": 80}],
+        "top_referrers": [{"referrer": "X / Twitter", "count": 60}],
+        "device_breakdown": {"desktop": 70, "mobile": 30},
+        "daily_trend": [{"date": "2026-11-10", "pageviews": 20, "uniques": 10}],
+        "recent_visits": [],
+    }
+    with patch("firebase_client.get_analytics_summary", new_callable=AsyncMock) as m:
+        m.return_value = mock_summary
+        res = await main.admin_analytics(req)
+        assert res.status_code == 200
+        assert json.loads(res.body) == mock_summary
+
+
